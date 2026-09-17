@@ -1,0 +1,47 @@
+name: macOS Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Build OpenKey Release
+        run: |
+          xcodebuild -project Sources/OpenKey/macOS/OpenKey.xcodeproj \
+            -scheme OpenKey \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Create DMG
+        run: |
+          VERSION=${GITHUB_REF_NAME:-v2.1.0}
+          VERSION_NUM=${VERSION#v}
+          mkdir -p /tmp/OpenKey_dmg_root
+          cp -R build/Build/Products/Release/OpenKey.app /tmp/OpenKey_dmg_root/OpenKey.app
+          ln -s /Applications /tmp/OpenKey_dmg_root/Applications
+          hdiutil create -volname "OpenKey ${VERSION_NUM}" -srcfolder /tmp/OpenKey_dmg_root -ov -format UDZO "OpenKey-${VERSION_NUM}.dmg"
+          rm -rf /tmp/OpenKey_dmg_root
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: OpenKey-*.dmg
+          generate_release_notes: true
