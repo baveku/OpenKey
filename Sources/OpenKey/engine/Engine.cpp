@@ -173,6 +173,37 @@ bool _spellingFlag = false;
 bool _spellingVowelOK = false;
 Byte _spellingEndIndex = 0;
 
+bool isValidInitialConsonants(const Byte& count) {
+    if (count == 0) return true;
+    if (count == 1) {
+        Uint16 c0 = CHR(0);
+        if (vQuickStartConsonant && (c0 == KEY_F || c0 == KEY_J || c0 == KEY_W)) return true;
+        // In Vietnamese, words never start with F, J, W, Z or lone P and take Vietnamese tone marks
+        if (c0 == KEY_F || c0 == KEY_J || c0 == KEY_W || c0 == KEY_Z || c0 == KEY_P) return false;
+        return true;
+    }
+    if (count == 2) {
+        Uint16 c0 = CHR(0);
+        Uint16 c1 = CHR(1);
+        if (c0 == KEY_C && c1 == KEY_H) return true; // ch
+        if (c0 == KEY_G && c1 == KEY_H) return true; // gh
+        if (c0 == KEY_G && c1 == KEY_I) return true; // gi
+        if (c0 == KEY_K && c1 == KEY_H) return true; // kh
+        if (c0 == KEY_N && c1 == KEY_H) return true; // nh
+        if (c0 == KEY_N && c1 == KEY_G) return true; // ng
+        if (c0 == KEY_P && c1 == KEY_H) return true; // ph
+        if (c0 == KEY_T && c1 == KEY_H) return true; // th
+        if (c0 == KEY_T && c1 == KEY_R) return true; // tr
+        if (c0 == KEY_Q && c1 == KEY_U) return true; // qu
+        return false;
+    }
+    if (count == 3) {
+        if (CHR(0) == KEY_N && CHR(1) == KEY_G && CHR(2) == KEY_H) return true; // ngh
+        return false;
+    }
+    return false;
+}
+
 void checkSpelling(const bool& forceCheckVowel=false) {
     _spellingOK = false;
     _spellingVowelOK = true;
@@ -186,22 +217,17 @@ void checkSpelling(const bool& forceCheckVowel=false) {
         j = 0;
         //Check first consonant
         if (IS_CONSONANT(CHR(0))) {
-            for (i = 0; i < _consonantTable.size(); i++) {
-                _spellingFlag = false;
-                if (_spellingEndIndex < _consonantTable[i].size())
-                    _spellingFlag = true;
-                for (j = 0; j < _consonantTable[i].size(); j++) {
-                    if (_spellingEndIndex > j &&
-                        (_consonantTable[i][j] & ~(vQuickStartConsonant ? END_CONSONANT_MASK : 0)) != CHR(j) &&
-                        (_consonantTable[i][j] & ~(vAllowConsonantZFWJ ? CONSONANT_ALLOW_MASK : 0)) != CHR(j)) {
-                        _spellingFlag = true;
-                        break;
-                    }
-                }
-                if (_spellingFlag)
-                    continue;
-                
-                break;
+            while (j < _spellingEndIndex && IS_CONSONANT(CHR(j))) {
+                j++;
+            }
+            // Special case for initial "gi": when followed by a vowel, "gi" acts as initial consonant (length 2)
+            if (j == 1 && CHR(0) == KEY_G && _spellingEndIndex > 2 && CHR(1) == KEY_I && !IS_CONSONANT(CHR(2))) {
+                j = 2;
+            }
+            if (!isValidInitialConsonants(j)) {
+                _spellingOK = (vAllowConsonantZFWJ || CHR(0) == KEY_P) ? true : false;
+                tempDisableKey = true;
+                return;
             }
         }
         
@@ -250,22 +276,22 @@ void checkSpelling(const bool& forceCheckVowel=false) {
             }
             
             //continue check last consonant
-            for (ii = 0; ii < _endConsonantTable.size(); ii++) {
-                _spellingFlag = false;
-   
-                for (j = 0; j < _endConsonantTable[ii].size(); j++) {
-                    if (_spellingEndIndex > k+j &&
-                        (_endConsonantTable[ii][j] & ~(vQuickEndConsonant ? END_CONSONANT_MASK : 0)) != CHR(k + j)) {
-                        _spellingFlag = true;
-                        break;
-                    }
-                }
-                if (_spellingFlag)
-                    continue;
-                
-                if (k + j >= _spellingEndIndex) {
+            int endConsCount = _spellingEndIndex - k;
+            if (endConsCount == 0) {
+                _spellingOK = true;
+            } else if (endConsCount == 1) {
+                Uint16 ec = CHR(k);
+                if (ec == KEY_C || ec == KEY_M || ec == KEY_N || ec == KEY_P || ec == KEY_T) {
                     _spellingOK = true;
-                    break;
+                } else if (vQuickEndConsonant && (ec == KEY_G || ec == KEY_K || ec == KEY_H)) {
+                    _spellingOK = true;
+                }
+            } else if (endConsCount == 2) {
+                Uint16 ec0 = CHR(k), ec1 = CHR(k+1);
+                if ((ec0 == KEY_C && ec1 == KEY_H) ||
+                    (ec0 == KEY_N && ec1 == KEY_H) ||
+                    (ec0 == KEY_N && ec1 == KEY_G)) {
+                    _spellingOK = true;
                 }
             }
             
@@ -480,6 +506,35 @@ void checkCorrectVowel(vector<vector<Uint16>>& charset, int& i, int& k, const Ui
         k--;
         if (k < 0)
             break;
+    }
+    
+    // Check initial consonants of the word (all consonants before the first vowel)
+    int firstVowelIdx = 0;
+    while (firstVowelIdx < _index && IS_CONSONANT(CHR(firstVowelIdx))) {
+        firstVowelIdx++;
+    }
+    if (firstVowelIdx == 1 && CHR(0) == KEY_G && _index > 2 && CHR(1) == KEY_I && !IS_CONSONANT(CHR(2))) {
+        firstVowelIdx = 2;
+    }
+    
+    // foreign initial consonants bypass vowel combining and mark keys
+    if (!isValidInitialConsonants(firstVowelIdx)) {
+        isCorect = false;
+        return;
+    }
+
+    // Any character between the initial consonants and the matched vowel pattern must be a vowel
+    for (int v = firstVowelIdx; v <= k; v++) {
+        if (IS_CONSONANT(CHR(v))) {
+            isCorect = false;
+            return;
+        }
+    }
+    
+    // Reject acute and tilde marks for standalone 'in'
+    if (firstVowelIdx == 0 && _index >= 2 && CHR(0) == KEY_I && CHR(1) == KEY_N && (IS_KEY_S(markKey) || IS_KEY_X(markKey))) {
+        isCorect = false;
+        return;
     }
     
     //limit mark for end consonant: "C", "T"
@@ -1072,6 +1127,23 @@ void handleMainKey(const Uint16& data, const bool& isCaps) {
         return;
     }
     
+    // Check if initial consonants are valid
+    int firstVowelIdx = 0;
+    while (firstVowelIdx < _index && IS_CONSONANT(CHR(firstVowelIdx))) {
+        firstVowelIdx++;
+    }
+    if (firstVowelIdx == 1 && CHR(0) == KEY_G && _index > 2 && CHR(1) == KEY_I && !IS_CONSONANT(CHR(2))) {
+        firstVowelIdx = 2;
+    }
+    if (!isValidInitialConsonants(firstVowelIdx)) {
+        if (data == KEY_W && vInputType != vSimpleTelex1) {
+            checkForStandaloneChar(data, isCaps, KEY_U);
+        } else {
+            insertKey(data, isCaps);
+        }
+        return;
+    }
+    
     //if is D key
     if (IS_KEY_D(data)) {
         isCorect = false;
@@ -1488,6 +1560,31 @@ void vKeyHandleEvent(const vKeyEvent& event,
                 handleQuickTelex(data, _isCaps);
                 return;
             } else {
+                // If data is KEY_T and previous key was KEY_S which added an acute mark:
+                // This means the user typed an English word ending in "-st" (e.g. boost, test, best, rest, cost, list, must).
+                // Restore the entire word to its raw keystrokes!
+                if (vInputType == vTelex && data == KEY_T && _stateIndex >= 2 && (KeyStates[_stateIndex - 2] & CHAR_MASK) == KEY_S) {
+                    bool hadAcuteMark = false;
+                    for (int si = 0; si < _index; si++) {
+                        if (TypingWord[si] & MARK1_MASK) {
+                            hadAcuteMark = true;
+                            break;
+                        }
+                    }
+                    if (hadAcuteMark) {
+                        hCode = vWillProcess;
+                        hBPC = _index;
+                        hNCC = _stateIndex;
+                        for (i = 0; i < _stateIndex; i++) {
+                            TypingWord[i] = KeyStates[i];
+                            hData[_stateIndex - 1 - i] = TypingWord[i];
+                        }
+                        _index = _stateIndex;
+                        tempDisableKey = true;
+                        _spellingOK = true;
+                        return;
+                    }
+                }
                 hCode = vDoNothing;
                 hBPC = 0;
                 hNCC = 0;

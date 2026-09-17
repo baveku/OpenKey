@@ -12,7 +12,7 @@
 #import "AppDelegate.h"
 #import "ViewController.h"
 
-#define FRONT_APP [[NSWorkspace sharedWorkspace] frontmostApplication].bundleIdentifier
+#define FRONT_APP _frontMostApp
 #define OTHER_CONTROL_KEY (_flag & kCGEventFlagMaskCommand) || (_flag & kCGEventFlagMaskControl) || \
                             (_flag & kCGEventFlagMaskAlternate) || (_flag & kCGEventFlagMaskSecondaryFn) || \
                             (_flag & kCGEventFlagMaskNumericPad) || (_flag & kCGEventFlagMaskHelp)
@@ -85,6 +85,8 @@ extern "C" {
     vector<Byte> savedSmartSwitchKeyData; ////use for smart switch key
     
     NSString* _frontMostApp = @"UnknownApp";
+    int vBypassRemoteDesktop = 1;
+    void UpdateFrontmostApp();
     
     void OpenKeyInit() {
         //load saved data
@@ -113,6 +115,12 @@ extern "C" {
         LOAD_DATA(vFixChromiumBrowser, vFixChromiumBrowser);
         
         LOAD_DATA(vPerformLayoutCompat, vPerformLayoutCompat);
+
+        if ([[NSUserDefaults standardUserDefaults] objectForKey:@"BypassRemoteDesktop"] == nil) {
+            vBypassRemoteDesktop = 1;
+        } else {
+            LOAD_DATA(vBypassRemoteDesktop, BypassRemoteDesktop);
+        }
         
         myEventSource = CGEventSourceCreate(kCGEventSourceStatePrivate);
         pData = (vKeyHookState*)vKeyInit();
@@ -142,6 +150,7 @@ extern "C" {
         if (convertToolHotKey == 0) {
             convertToolHotKey = EMPTY_HOTKEY;
         }
+        UpdateFrontmostApp();
     }
     
     void RequestNewSession() {
@@ -153,12 +162,40 @@ extern "C" {
         }
     }
     
+    bool _isCurrentAppRemote = false;
+
+    BOOL isRemoteApp(NSRunningApplication* app) {
+        if (!vBypassRemoteDesktop || app == nil) return NO;
+        NSString* bid = app.bundleIdentifier.lowercaseString;
+        NSString* name = app.localizedName.lowercaseString;
+        
+        NSArray<NSString*>* remoteKeywords = @[
+            @"rustdesk", @"anydesk", @"teamviewer", @"rdc", @"remotedesktop",
+            @"screensharing", @"parsec", @"vnc", @"nomachine", @"splashtop",
+            @"jump", @"citrix", @"moonlight", @"horizon", @"parallels",
+            @"virtualbox", @"utm", @"ultraviewer"
+        ];
+        
+        for (NSString* kw in remoteKeywords) {
+            if (bid && [bid containsString:kw]) return YES;
+            if (name && [name containsString:kw]) return YES;
+        }
+        
+        if (name && ([name containsString:@"remote desktop"] || [name containsString:@"screen sharing"])) {
+            return YES;
+        }
+        return NO;
+    }
+
+    void UpdateFrontmostApp() {
+        NSRunningApplication* app = [[NSWorkspace sharedWorkspace] frontmostApplication];
+        _frontMostApp = app.bundleIdentifier != nil ? app.bundleIdentifier : (app.localizedName != nil ? app.localizedName : @"UnknownApp");
+        _isCurrentAppRemote = isRemoteApp(app);
+    }
+    
     void queryFrontMostApp() {
         if ([[[NSWorkspace sharedWorkspace] frontmostApplication].bundleIdentifier compare:OPENKEY_BUNDLE] != 0) {
-            _frontMostApp = [[NSWorkspace sharedWorkspace] frontmostApplication].bundleIdentifier;
-            if (_frontMostApp == nil)
-                _frontMostApp = [[NSWorkspace sharedWorkspace] frontmostApplication].localizedName != nil ?
-                [[NSWorkspace sharedWorkspace] frontmostApplication].localizedName : @"UnknownApp";
+            UpdateFrontmostApp();
         }
     }
     
@@ -603,6 +640,7 @@ extern "C" {
         if (CGEventGetIntegerValueField(event, kCGEventSourceStateID) == CGEventSourceGetSourceStateID(myEventSource)) {
             return event;
         }
+        if (_isCurrentAppRemote) return event;
         
         _flag = CGEventGetFlags(event);
         _keycode = (CGKeyCode)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);

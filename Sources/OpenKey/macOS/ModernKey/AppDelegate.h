@@ -31,5 +31,6 @@
 -(void)setQuickConvertString;
 
 -(void)showIconOnDock:(BOOL)val;
+-(void)onToggleBypassRemote;
 @end
 

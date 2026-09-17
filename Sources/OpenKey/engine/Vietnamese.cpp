@@ -133,7 +133,6 @@ map<Uint16, vector<vector<Uint32>>> _vowelCombine = {
             {0, KEY_O|TONE_MASK, KEY_I},
             {0, KEY_O|TONEW_MASK, KEY_I},
             {1, KEY_O, KEY_O},
-            {1, KEY_O|TONE_MASK, KEY_O|TONE_MASK},
         }
     }, {
         KEY_U, {
@@ -262,9 +261,7 @@ map<Uint16, vector<vector<Uint16>>> _vowelForMark = {
         KEY_O, {
             {KEY_O, KEY_O, KEY_N, KEY_G}, {KEY_O, KEY_O, KEY_G | END_CONSONANT_MASK},
             {KEY_O, KEY_N, KEY_G}, {KEY_O, KEY_G | END_CONSONANT_MASK},
-            {KEY_O, KEY_O, KEY_N},
             {KEY_O, KEY_O, KEY_C},
-            {KEY_O, KEY_O},
             {KEY_O, KEY_N},
             {KEY_O, KEY_M},
             {KEY_O, KEY_I},

@@ -23,6 +23,8 @@ extern void OnTableCodeChange(void);
 extern void OnInputMethodChanged(void);
 extern void RequestNewSession(void);
 extern void OnActiveAppChanged(void);
+extern void UpdateFrontmostApp(void);
+extern int vBypassRemoteDesktop;
 
 //see document in Engine.h
 int vLanguage = 1;
@@ -89,6 +91,7 @@ extern bool convertToolDontAlertWhenCompleted;
     NSMenuItem* mnuVietnameseLocaleCP1258;
     
     NSMenuItem* mnuQuickConvert;
+    NSMenuItem* mnuBypassRemote;
 }
 
 -(void)askPermission {
@@ -159,6 +162,7 @@ extern bool convertToolDontAlertWhenCompleted;
         NSBeep();
 
     [self createStatusBarMenu];
+    UpdateFrontmostApp();
     
     //init
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -233,6 +237,10 @@ extern bool convertToolDontAlertWhenCompleted;
     [theMenu addItemWithTitle:@"Bảng điều khiển..." action:@selector(onControlPanelSelected) keyEquivalent:@""];
     [theMenu addItemWithTitle:@"Gõ tắt..." action:@selector(onMacroSelected) keyEquivalent:@""];
     [theMenu addItemWithTitle:@"Giới thiệu" action:@selector(onAboutSelected) keyEquivalent:@""];
+    [theMenu addItem:[NSMenuItem separatorItem]];
+    
+    mnuBypassRemote = [theMenu addItemWithTitle:@"Bỏ qua ứng dụng Remote" action:@selector(onToggleBypassRemote) keyEquivalent:@""];
+    
     [theMenu addItem:[NSMenuItem separatorItem]];
     
     [theMenu addItemWithTitle:@"Thoát" action:@selector(terminate:) keyEquivalent:@"q"];
@@ -422,6 +430,11 @@ extern bool convertToolDontAlertWhenCompleted;
     NSInteger intRunOnStartup = [[NSUserDefaults standardUserDefaults] integerForKey:@"RunOnStartup"];
     [self setRunOnStartup:intRunOnStartup ? YES : NO];
 
+    if (vBypassRemoteDesktop) {
+        [mnuBypassRemote setState:NSControlStateValueOn];
+    } else {
+        [mnuBypassRemote setState:NSControlStateValueOff];
+    }
 }
 
 -(void)onImputMethodChanged:(BOOL)willNotify {
@@ -547,8 +560,20 @@ extern bool convertToolDontAlertWhenCompleted;
 }
 
 -(void)activeAppChanged: (NSNotification*)note {
+    UpdateFrontmostApp();
     if (vUseSmartSwitchKey && [OpenKeyManager isInited]) {
         OnActiveAppChanged();
+    }
+}
+
+-(void)onToggleBypassRemote {
+    vBypassRemoteDesktop = !vBypassRemoteDesktop;
+    [[NSUserDefaults standardUserDefaults] setInteger:vBypassRemoteDesktop forKey:@"BypassRemoteDesktop"];
+    UpdateFrontmostApp();
+    if (vBypassRemoteDesktop) {
+        [mnuBypassRemote setState:NSControlStateValueOn];
+    } else {
+        [mnuBypassRemote setState:NSControlStateValueOff];
     }
 }
 
