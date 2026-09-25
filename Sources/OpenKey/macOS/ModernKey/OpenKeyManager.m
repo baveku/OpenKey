@@ -29,6 +29,13 @@ static BOOL _isInited = NO;
 static CFMachPortRef      eventTap;
 static CGEventMask        eventMask;
 static CFRunLoopSourceRef runLoopSource;
+static NSTimer            *eventTapWatchdogTimer = nil;
+
+void ReenableEventTap(void) {
+    if (eventTap && !CGEventTapIsEnabled(eventTap)) {
+        CGEventTapEnable(eventTap, true);
+    }
+}
 
 +(BOOL)isInited {
     return _isInited;
@@ -74,11 +81,22 @@ static CFRunLoopSourceRef runLoopSource;
     // Enable the event tap.
     CGEventTapEnable(eventTap, true);
     
+    // Watchdog timer: automatically re-enable event tap if system lag, freeze, or timeout disabled it
+    if (!eventTapWatchdogTimer) {
+        eventTapWatchdogTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer * _Nonnull timer) {
+            ReenableEventTap();
+        }];
+    }
+    
     return YES;
 }
 
 +(BOOL)stopEventTap {
     if (_isInited) { //release all object
+        if (eventTapWatchdogTimer) {
+            [eventTapWatchdogTimer invalidate];
+            eventTapWatchdogTimer = nil;
+        }
         CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, kCFRunLoopCommonModes);
         CFRelease(runLoopSource);
         runLoopSource = nil;

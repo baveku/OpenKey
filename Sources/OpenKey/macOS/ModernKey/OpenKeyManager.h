@@ -28,4 +28,12 @@ typedef void (^CheckNewVersionCallback)(void);
 +(void)checkNewVersion:(NSWindow*)parent callbackFunc:(CheckNewVersionCallback) callback;
 @end
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+void ReenableEventTap(void);
+#ifdef __cplusplus
+}
+#endif
+
 #endif /* OpenKeyManager_h */

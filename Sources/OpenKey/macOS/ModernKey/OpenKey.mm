@@ -48,6 +48,7 @@ extern int vFixChromiumBrowser;
 extern int vPerformLayoutCompat;
 
 extern "C" {
+    extern void ReenableEventTap(void);
     //app which must sent special empty character
     NSArray* _niceSpaceApp = @[@"com.sublimetext.3",
                                @"com.sublimetext.2",
@@ -212,15 +213,25 @@ extern "C" {
         return false;
     }
 
+    static BOOL _cachedSpotlightVisible = NO;
+    static NSTimeInterval _lastSpotlightCheck = 0;
+
     BOOL isSpotlightVisible() {
+        NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+        if (now - _lastSpotlightCheck < 0.5) {
+            return _cachedSpotlightVisible;
+        }
+        _lastSpotlightCheck = now;
+        _cachedSpotlightVisible = NO;
         NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
                                                                         kCGNullWindowID));
         for (NSDictionary *window in windows) {
             if ([[window objectForKey:(__bridge NSString *)kCGWindowOwnerName] isEqualToString:@"Spotlight"]) {
-                return true;
+                _cachedSpotlightVisible = YES;
+                break;
             }
         }
-        return false;
+        return _cachedSpotlightVisible;
     }
 
     BOOL shouldUseRecommendWorkaround(NSString* topApp) {
@@ -310,6 +321,7 @@ extern "C" {
             _newEventDown = CGEventCreateKeyboardEvent(myEventSource, _newChar, true);
             _newEventUp = CGEventCreateKeyboardEvent(myEventSource, _newChar, false);
             _privateFlag = CGEventGetFlags(_newEventDown);
+            _privateFlag &= ~(kCGEventFlagMaskCommand | kCGEventFlagMaskControl | kCGEventFlagMaskAlternate);
             
             if (data & CAPS_MASK) {
                 _privateFlag |= kCGEventFlagMaskShift;
@@ -636,6 +648,16 @@ extern "C" {
      * MAIN Callback.
      */
     CGEventRef OpenKeyCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon) {
+        // Handle disabled event tap so system never stops receiving input when lagging or hanging
+        if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
+            ReenableEventTap();
+            return event;
+        }
+
+        if (event == NULL) {
+            return event;
+        }
+
         //dont handle my event
         if (CGEventGetIntegerValueField(event, kCGEventSourceStateID) == CGEventSourceGetSourceStateID(myEventSource)) {
             return event;
@@ -653,49 +675,51 @@ extern "C" {
         //switch language shortcut; convert hotkey
         if (type == kCGEventKeyDown) {
             if (GET_SWITCH_KEY(vSwitchKeyStatus) != _keycode && GET_SWITCH_KEY(convertToolHotKey) != _keycode) {
-                _lastFlag = 0;
+                _lastFlag = _flag;
             } else {
                 if (GET_SWITCH_KEY(vSwitchKeyStatus) == _keycode && checkHotKey(vSwitchKeyStatus, GET_SWITCH_KEY(vSwitchKeyStatus) != 0xFE)){
                     switchLanguage();
-                    _lastFlag = 0;
+                    _lastFlag = _flag;
                     _hasJustUsedHotKey = true;
                     return NULL;
                 }
                 if (GET_SWITCH_KEY(convertToolHotKey) == _keycode && checkHotKey(convertToolHotKey, GET_SWITCH_KEY(convertToolHotKey) != 0xFE)){
                     [appDelegate onQuickConvert];
-                    _lastFlag = 0;
+                    _lastFlag = _flag;
                     _hasJustUsedHotKey = true;
                     return NULL;
                 }
             }
             _hasJustUsedHotKey = _lastFlag != 0;
         } else if (type == kCGEventFlagsChanged) {
-            if (_lastFlag == 0 || _lastFlag < _flag) {
-                _lastFlag = _flag;
-            } else if (_lastFlag > _flag)  {
+            bool isRelease = (_lastFlag & ~_flag) != 0;
+            if (isRelease) {
                 //check switch
                 if (checkHotKey(vSwitchKeyStatus, GET_SWITCH_KEY(vSwitchKeyStatus) != 0xFE)) {
-                    _lastFlag = 0;
+                    _lastFlag = _flag;
                     switchLanguage();
                     _hasJustUsedHotKey = true;
-                    return NULL;
+                    return event; // NEVER drop modifier release events, otherwise modifiers get stuck!
                 }
                 if (checkHotKey(convertToolHotKey, GET_SWITCH_KEY(convertToolHotKey) != 0xFE)) {
-                    _lastFlag = 0;
+                    _lastFlag = _flag;
                     [appDelegate onQuickConvert];
                     _hasJustUsedHotKey = true;
-                    return NULL;
+                    return event; // NEVER drop modifier release events, otherwise modifiers get stuck!
                 }
                 //check temporarily turn off spell checking
-                if (vTempOffSpelling && !_hasJustUsedHotKey && _lastFlag & kCGEventFlagMaskControl) {
+                if (vTempOffSpelling && !_hasJustUsedHotKey && (_lastFlag & kCGEventFlagMaskControl)) {
                     vTempOffSpellChecking();
                 }
-                if (vTempOffOpenKey && !_hasJustUsedHotKey && _lastFlag & kCGEventFlagMaskCommand) {
+                if (vTempOffOpenKey && !_hasJustUsedHotKey && (_lastFlag & kCGEventFlagMaskCommand)) {
                     vTempOffEngine();
                 }
-                _lastFlag = 0;
+                _lastFlag = _flag;
                 _hasJustUsedHotKey = false;
+            } else {
+                _lastFlag = _flag;
             }
+            return event;
         }
 
         // Also check correct event hooked
