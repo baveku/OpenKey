@@ -8,6 +8,7 @@
 #import <Cocoa/Cocoa.h>
 #import <Carbon/Carbon.h>
 #import <Foundation/Foundation.h>
+#import <mach/mach_time.h>
 #import "Engine.h"
 #import "AppDelegate.h"
 #import "ViewController.h"
@@ -215,33 +216,63 @@ extern "C" {
 
     static BOOL _cachedSpotlightVisible = NO;
     static NSTimeInterval _lastSpotlightCheck = 0;
+    static BOOL _isCheckingSpotlight = NO;
 
     BOOL isSpotlightVisible() {
-        NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-        if (now - _lastSpotlightCheck < 0.5) {
-            return _cachedSpotlightVisible;
+        if ([FRONT_APP isEqualToString:@"com.apple.Spotlight"]) {
+            return YES;
         }
-        _lastSpotlightCheck = now;
-        _cachedSpotlightVisible = NO;
-        NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
-                                                                        kCGNullWindowID));
-        for (NSDictionary *window in windows) {
-            if ([[window objectForKey:(__bridge NSString *)kCGWindowOwnerName] isEqualToString:@"Spotlight"]) {
-                _cachedSpotlightVisible = YES;
-                break;
-            }
+        NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+        if (now - _lastSpotlightCheck >= 0.5 && !_isCheckingSpotlight) {
+            _lastSpotlightCheck = now;
+            _isCheckingSpotlight = YES;
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                BOOL visible = NO;
+                NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+                                                                                kCGNullWindowID));
+                for (NSDictionary *window in windows) {
+                    if ([[window objectForKey:(__bridge NSString *)kCGWindowOwnerName] isEqualToString:@"Spotlight"]) {
+                        visible = YES;
+                        break;
+                    }
+                }
+                _cachedSpotlightVisible = visible;
+                _isCheckingSpotlight = NO;
+            });
         }
         return _cachedSpotlightVisible;
+    }
+
+    BOOL isBrowserApp(NSString* topApp) {
+        if (topApp == nil) return false;
+        static NSArray* browserApps = @[
+            @"com.google.Chrome",
+            @"com.apple.Safari",
+            @"org.mozilla.firefox",
+            @"com.microsoft.edgemac",
+            @"com.microsoft.Edge",
+            @"com.brave.Browser",
+            @"company.thebrowser.Browser", // Arc
+            @"com.operasoftware.Opera",
+            @"com.vivaldi.Vivaldi",
+            @"com.microsoft.Excel"
+        ];
+        for (NSString* app in browserApps) {
+            if ([topApp hasPrefix:app] || [topApp isEqualToString:app]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     BOOL shouldUseRecommendWorkaround(NSString* topApp) {
         if (!vFixRecommendBrowser) return false;
         if (isSpotlightVisible()) return false;
-        if (topApp == nil) return true;
-        return ![_recommendWorkaroundDisabledApp containsObject:topApp];
+        return isBrowserApp(topApp);
     }
 
     BOOL shouldUseSelectionReplacement(NSString* topApp) {
+        if ([topApp isEqualToString:@"com.apple.Spotlight"]) return true;
         return isSpotlightVisible() || [_recommendWorkaroundDisabledApp containsObject:topApp];
     }
     
@@ -396,6 +427,8 @@ extern "C" {
         
         _newEventDown = CGEventCreateKeyboardEvent(myEventSource, 0, true);
         _newEventUp = CGEventCreateKeyboardEvent(myEventSource, 0, false);
+        CGEventSetTimestamp(_newEventDown, mach_absolute_time());
+        CGEventSetTimestamp(_newEventUp, mach_absolute_time());
         CGEventKeyboardSetUnicodeString(_newEventDown, 1, &_newChar);
         CGEventKeyboardSetUnicodeString(_newEventUp, 1, &_newChar);
         CGEventTapPostEvent(_proxy, _newEventDown);
@@ -407,6 +440,8 @@ extern "C" {
     void SendVirtualKey(const Byte& vKey) {
         CGEventRef eventVkeyDown = CGEventCreateKeyboardEvent (myEventSource, vKey, true);
         CGEventRef eventVkeyUp = CGEventCreateKeyboardEvent (myEventSource, vKey, false);
+        CGEventSetTimestamp(eventVkeyDown, mach_absolute_time());
+        CGEventSetTimestamp(eventVkeyUp, mach_absolute_time());
         
         CGEventTapPostEvent(_proxy, eventVkeyDown);
         CGEventTapPostEvent(_proxy, eventVkeyUp);
@@ -416,13 +451,17 @@ extern "C" {
     }
 
     void SendBackspace() {
+        CGEventSetTimestamp(eventBackSpaceDown, mach_absolute_time());
         CGEventTapPostEvent(_proxy, eventBackSpaceDown);
+        CGEventSetTimestamp(eventBackSpaceUp, mach_absolute_time());
         CGEventTapPostEvent(_proxy, eventBackSpaceUp);
         
         if (IS_DOUBLE_CODE(vCodeTable)) { //VNI or Unicode Compound
             if (_syncKey.back() > 1) {
                 if (!(vCodeTable == 3 && containUnicodeCompoundApp(FRONT_APP))) {
+                    CGEventSetTimestamp(eventBackSpaceDown, mach_absolute_time());
                     CGEventTapPostEvent(_proxy, eventBackSpaceDown);
+                    CGEventSetTimestamp(eventBackSpaceUp, mach_absolute_time());
                     CGEventTapPostEvent(_proxy, eventBackSpaceUp);
                 }
             }

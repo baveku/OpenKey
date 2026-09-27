@@ -178,8 +178,8 @@ bool isValidInitialConsonants(const Byte& count) {
     if (count == 1) {
         Uint16 c0 = CHR(0);
         if (vQuickStartConsonant && (c0 == KEY_F || c0 == KEY_J || c0 == KEY_W)) return true;
-        // In Vietnamese, words never start with F, J, W, Z or lone P and take Vietnamese tone marks
-        if (c0 == KEY_F || c0 == KEY_J || c0 == KEY_W || c0 == KEY_Z || c0 == KEY_P) return false;
+        // In Vietnamese, words never start with F, J, W, Z and take Vietnamese tone marks
+        if (c0 == KEY_F || c0 == KEY_J || c0 == KEY_W || c0 == KEY_Z) return false;
         return true;
     }
     if (count == 2) {
@@ -475,6 +475,8 @@ void restoreLastTypingState() {
                     TypingWord[i] = _typingStatesData[i];
                 }
                 _index = (Byte)_typingStatesData.size();
+                if (vCheckSpelling)
+                    checkSpelling();
             }
         }
     }
@@ -1519,6 +1521,25 @@ void vKeyHandleEvent(const vKeyEvent& event,
                 }
                 if (vCheckSpelling)
                     checkSpelling();
+                if (_index == 0) {
+                    startNewSession();
+                    _specialChar.clear();
+                } else { //August 23rd continue check grammar
+                    checkGrammar(1);
+                }
+            } else {
+                // _index was already 0 when Backspace was pressed:
+                // user is backspacing across the word boundary!
+                startNewSession();
+                _specialChar.clear();
+                restoreLastTypingState();
+                if (_spaceCount > 0) {
+                    _spaceCount--;
+                } else if (_index > 0) {
+                    _index--;
+                    if (vCheckSpelling)
+                        checkSpelling();
+                }
             }
             if (vUseMacro && hMacroKey.size() > 0) {
                 hMacroKey.pop_back();
@@ -1527,13 +1548,6 @@ void vKeyHandleEvent(const vKeyEvent& event,
             hBPC = 0;
             hNCC = 0;
             hExt = 2; //delete key
-            if (_index == 0) {
-                startNewSession();
-                _specialChar.clear();
-                restoreLastTypingState();
-            } else { //August 23rd continue check grammar
-                checkGrammar(1);
-            }
         }
     } else { //START AND CHECK KEY
         if (_willTempOffEngine) {
