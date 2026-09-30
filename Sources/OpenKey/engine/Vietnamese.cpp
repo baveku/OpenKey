@@ -280,7 +280,6 @@ map<Uint16, vector<vector<Uint16>>> _vowelForMark = {
             {KEY_E, KEY_Y},
             {KEY_E, KEY_U},
             {KEY_E, KEY_P},
-            {KEY_E, KEY_C},
             {KEY_E, KEY_N},
             {KEY_E, KEY_M},
             {KEY_E}
@@ -293,7 +292,6 @@ map<Uint16, vector<vector<Uint16>>> _vowelForMark = {
             {KEY_I, KEY_T},
             {KEY_I, KEY_U},
             {KEY_I, KEY_U, KEY_P},
-            {KEY_I, KEY_N},
             {KEY_I, KEY_M},
             {KEY_I, KEY_P},
             {KEY_I, KEY_A},
@@ -314,7 +312,6 @@ map<Uint16, vector<vector<Uint16>>> _vowelForMark = {
             { KEY_U, KEY_T},
             { KEY_U, KEY_U},
             { KEY_U, KEY_A},
-            { KEY_U, KEY_I},
             { KEY_U, KEY_C},
             { KEY_U, KEY_N},
             { KEY_U, KEY_M},

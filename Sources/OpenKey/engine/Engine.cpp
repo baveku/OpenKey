@@ -295,11 +295,11 @@ void checkSpelling(const bool& forceCheckVowel=false) {
                 }
             }
             
-            //limit: end consonant "ch", "t" can not use with "~", "`", "?"
+            //limit: end consonant "c", "ch", "p", "t" can not use with "~", "`", "?"
             if (_spellingOK) {
                 if (_index >= 3 && CHR(_index-1) == KEY_H && CHR(_index-2) == KEY_C && !((TypingWord[_index-3] & MARK1_MASK) || (TypingWord[_index-3] & MARK5_MASK) || !(TypingWord[_index-3] & MARK_MASK))) {
                     _spellingOK = false;
-                } else if (_index >= 2 && CHR(_index-1) == KEY_T && !((TypingWord[_index-2] & MARK1_MASK) || (TypingWord[_index-2] & MARK5_MASK) || !(TypingWord[_index-2] & MARK_MASK))) {
+                } else if (_index >= 2 && (CHR(_index-1) == KEY_T || CHR(_index-1) == KEY_C || CHR(_index-1) == KEY_P) && !((TypingWord[_index-2] & MARK1_MASK) || (TypingWord[_index-2] & MARK5_MASK) || !(TypingWord[_index-2] & MARK_MASK))) {
                     _spellingOK = false;
                 }
             }
@@ -537,6 +537,30 @@ void checkCorrectVowel(vector<vector<Uint16>>& charset, int& i, int& k, const Ui
     if (firstVowelIdx == 0 && _index >= 2 && CHR(0) == KEY_I && CHR(1) == KEY_N && (IS_KEY_S(markKey) || IS_KEY_X(markKey))) {
         isCorect = false;
         return;
+    }
+    
+    // Reject tilde (x) on standalone single vowels where no Vietnamese word exists
+    // (e.g. "ex" -> "ẽ", "ox" -> "õ", "ux" -> "ũ", "ax" -> "ã", "ix" -> "ĩ", "yx" -> "ỹ")
+    // Also reject hỏi (r) on standalone unaccented 'e' ("er" -> "ẻ") and 'o' ("or" -> "ỏ")
+    if (firstVowelIdx == 0 && _index == 1 && !(TypingWord[0] & (TONE_MASK | TONEW_MASK))) {
+        if (IS_KEY_X(markKey)) {
+            isCorect = false;
+            return;
+        }
+        if (IS_KEY_R(markKey) && (CHR(0) == KEY_E || CHR(0) == KEY_O)) {
+            isCorect = false;
+            return;
+        }
+    }
+    
+    // Reject tilde (x) on initial consonant + vowel pairs where no Vietnamese word exists
+    // (e.g. "nex" -> "next/nexus", "tex" -> "text/texas", "hex" -> "hex", "tox" -> "toxic/detox")
+    if (firstVowelIdx == 1 && _index == 2 && !(TypingWord[1] & (TONE_MASK | TONEW_MASK)) && IS_KEY_X(markKey)) {
+        if ((CHR(1) == KEY_E && (CHR(0) == KEY_N || CHR(0) == KEY_T || CHR(0) == KEY_H)) ||
+            (CHR(1) == KEY_O && CHR(0) == KEY_T)) {
+            isCorect = false;
+            return;
+        }
     }
     
     //limit mark for end consonant: "C", "T"
@@ -1569,36 +1593,65 @@ void vKeyHandleEvent(const vKeyEvent& event,
 
         insertState(data, _isCaps); //save state
         
+        // Check if previous key was a Telex mark key (S, R, X, F) that added a tone mark,
+        // and current key produces an impossible Vietnamese cluster/sequence but a common English word.
+        // Restore the entire word to its raw keystrokes!
+        if (vInputType == vTelex && _stateIndex >= 2) {
+            Uint16 prevKey = KeyStates[_stateIndex - 2] & CHAR_MASK;
+            bool shouldRestore = false;
+            if (prevKey == KEY_S && (data == KEY_T || data == KEY_H || data == KEY_K || data == KEY_P || data == KEY_M || data == KEY_C || data == KEY_L)) {
+                for (int si = 0; si < _index; si++) {
+                    if (TypingWord[si] & MARK1_MASK) {
+                        shouldRestore = true;
+                        break;
+                    }
+                }
+            } else if (prevKey == KEY_R && (data == KEY_T || data == KEY_K || data == KEY_D || data == KEY_L || data == KEY_P || data == KEY_C)) {
+                for (int si = 0; si < _index; si++) {
+                    if (TypingWord[si] & MARK3_MASK) {
+                        shouldRestore = true;
+                        break;
+                    }
+                }
+            } else if (prevKey == KEY_X && data != KEY_N && data != KEY_M && data != KEY_X) {
+                // In Vietnamese with tilde mark, only n, m, or x (escape) can follow.
+                // Any other consonant or vowel indicates English (next, text, taxi, pixel, mixer, boxing, nexus, sixteen, sixty, sexy, toxic, maximum).
+                for (int si = 0; si < _index; si++) {
+                    if (TypingWord[si] & MARK4_MASK) {
+                        shouldRestore = true;
+                        break;
+                    }
+                }
+            } else if (prevKey == KEY_F && (data == KEY_T || data == KEY_L || data == KEY_R || data == KEY_K || data == KEY_D || data == KEY_P || data == KEY_C)) {
+                // In Vietnamese with huyền mark, voiceless stops (t, c, p) and foreign consonants (l, r, k, d) cannot follow.
+                // Handles soft, gift, lift, left, craft, after, often, reflex, conflict, reflect, deflate.
+                for (int si = 0; si < _index; si++) {
+                    if (TypingWord[si] & MARK2_MASK) {
+                        shouldRestore = true;
+                        break;
+                    }
+                }
+            }
+            if (shouldRestore) {
+                hCode = vWillProcess;
+                hBPC = _index;
+                hNCC = _stateIndex;
+                for (i = 0; i < _stateIndex; i++) {
+                    TypingWord[i] = KeyStates[i];
+                    hData[_stateIndex - 1 - i] = TypingWord[i];
+                }
+                _index = _stateIndex;
+                tempDisableKey = true;
+                _spellingOK = true;
+                return;
+            }
+        }
+        
         if (!IS_SPECIALKEY(data) || tempDisableKey) { //do nothing
             if (vQuickTelex && IS_QUICK_TELEX_KEY(data)) {
                 handleQuickTelex(data, _isCaps);
                 return;
             } else {
-                // If data is KEY_T and previous key was KEY_S which added an acute mark:
-                // This means the user typed an English word ending in "-st" (e.g. boost, test, best, rest, cost, list, must).
-                // Restore the entire word to its raw keystrokes!
-                if (vInputType == vTelex && data == KEY_T && _stateIndex >= 2 && (KeyStates[_stateIndex - 2] & CHAR_MASK) == KEY_S) {
-                    bool hadAcuteMark = false;
-                    for (int si = 0; si < _index; si++) {
-                        if (TypingWord[si] & MARK1_MASK) {
-                            hadAcuteMark = true;
-                            break;
-                        }
-                    }
-                    if (hadAcuteMark) {
-                        hCode = vWillProcess;
-                        hBPC = _index;
-                        hNCC = _stateIndex;
-                        for (i = 0; i < _stateIndex; i++) {
-                            TypingWord[i] = KeyStates[i];
-                            hData[_stateIndex - 1 - i] = TypingWord[i];
-                        }
-                        _index = _stateIndex;
-                        tempDisableKey = true;
-                        _spellingOK = true;
-                        return;
-                    }
-                }
                 hCode = vDoNothing;
                 hBPC = 0;
                 hNCC = 0;

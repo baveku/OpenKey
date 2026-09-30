@@ -457,21 +457,25 @@ extern "C" {
         CGEventTapPostEvent(_proxy, eventBackSpaceUp);
         
         if (IS_DOUBLE_CODE(vCodeTable)) { //VNI or Unicode Compound
-            if (_syncKey.back() > 1) {
-                if (!(vCodeTable == 3 && containUnicodeCompoundApp(FRONT_APP))) {
-                    CGEventSetTimestamp(eventBackSpaceDown, mach_absolute_time());
-                    CGEventTapPostEvent(_proxy, eventBackSpaceDown);
-                    CGEventSetTimestamp(eventBackSpaceUp, mach_absolute_time());
-                    CGEventTapPostEvent(_proxy, eventBackSpaceUp);
+            if (!_syncKey.empty()) {
+                if (_syncKey.back() > 1) {
+                    if (!(vCodeTable == 3 && containUnicodeCompoundApp(FRONT_APP))) {
+                        CGEventSetTimestamp(eventBackSpaceDown, mach_absolute_time());
+                        CGEventTapPostEvent(_proxy, eventBackSpaceDown);
+                        CGEventSetTimestamp(eventBackSpaceUp, mach_absolute_time());
+                        CGEventTapPostEvent(_proxy, eventBackSpaceUp);
+                    }
                 }
+                _syncKey.pop_back();
             }
-            _syncKey.pop_back();
         }
     }
     
     void SendShiftAndLeftArrow() {
         CGEventRef eventVkeyDown = CGEventCreateKeyboardEvent (myEventSource, KEY_LEFT, true);
         CGEventRef eventVkeyUp = CGEventCreateKeyboardEvent (myEventSource, KEY_LEFT, false);
+        CGEventSetTimestamp(eventVkeyDown, mach_absolute_time());
+        CGEventSetTimestamp(eventVkeyUp, mach_absolute_time());
         _privateFlag = CGEventGetFlags(eventVkeyDown);
         _privateFlag |= kCGEventFlagMaskShift;
         CGEventSetFlags(eventVkeyDown, _privateFlag);
@@ -481,13 +485,15 @@ extern "C" {
         CGEventTapPostEvent(_proxy, eventVkeyUp);
         
         if (IS_DOUBLE_CODE(vCodeTable)) { //VNI or Unicode Compound
-            if (_syncKey.back() > 1) {
-                if (!(vCodeTable == 3 && containUnicodeCompoundApp(FRONT_APP))) {
-                    CGEventTapPostEvent(_proxy, eventVkeyDown);
-                    CGEventTapPostEvent(_proxy, eventVkeyUp);
+            if (!_syncKey.empty()) {
+                if (_syncKey.back() > 1) {
+                    if (!(vCodeTable == 3 && containUnicodeCompoundApp(FRONT_APP))) {
+                        CGEventTapPostEvent(_proxy, eventVkeyDown);
+                        CGEventTapPostEvent(_proxy, eventVkeyUp);
+                    }
                 }
+                _syncKey.pop_back();
             }
-            _syncKey.pop_back();
         }
         CFRelease(eventVkeyDown);
         CFRelease(eventVkeyUp);
@@ -496,6 +502,8 @@ extern "C" {
     void SendCutKey() {
         CGEventRef eventVkeyDown = CGEventCreateKeyboardEvent (myEventSource, KEY_X, true);
         CGEventRef eventVkeyUp = CGEventCreateKeyboardEvent (myEventSource, KEY_X, false);
+        CGEventSetTimestamp(eventVkeyDown, mach_absolute_time());
+        CGEventSetTimestamp(eventVkeyUp, mach_absolute_time());
         _privateFlag = CGEventGetFlags(eventVkeyDown);
         _privateFlag |= NX_COMMANDMASK;
         CGEventSetFlags(eventVkeyDown, _privateFlag);
@@ -583,6 +591,8 @@ extern "C" {
         
         _newEventDown = CGEventCreateKeyboardEvent(myEventSource, 0, true);
         _newEventUp = CGEventCreateKeyboardEvent(myEventSource, 0, false);
+        CGEventSetTimestamp(_newEventDown, mach_absolute_time());
+        CGEventSetTimestamp(_newEventUp, mach_absolute_time());
         CGEventKeyboardSetUnicodeString(_newEventDown, _willContinuteSending ? 16 : _newCharSize - offset, _newCharString);
         CGEventKeyboardSetUnicodeString(_newEventUp, _willContinuteSending ? 16 : _newCharSize - offset, _newCharString);
         CGEventTapPostEvent(_proxy, _newEventDown);
