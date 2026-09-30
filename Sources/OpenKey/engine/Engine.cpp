@@ -118,6 +118,7 @@ static vector<Uint32> _specialChar;
 static bool _useSpellCheckingBefore;
 static bool _hasHandleQuickConsonant;
 static bool _willTempOffEngine = false;
+static bool _isInsideFileExtensionOrPath = false;
 
 //function prototype
 void findAndCalculateVowel(const bool& forGrammar=false);
@@ -139,6 +140,9 @@ void* vKeyInit() {
     _typingStatesData.clear();
     _typingStates.clear();
     _longWordHelper.clear();
+    _specialChar.clear();
+    _spaceCount = 0;
+    _isInsideFileExtensionOrPath = false;
     return &HookState;
 }
 
@@ -525,6 +529,13 @@ void checkCorrectVowel(vector<vector<Uint16>>& charset, int& i, int& k, const Ui
         return;
     }
 
+    // In Vietnamese orthography, initial "ng" cannot precede 'i', 'e', 'ê' (must be "ngh")
+    // Prevents English words like "nginx" from falsely receiving marks ("ngin" + "x" -> "ngĩn")
+    if (firstVowelIdx == 2 && CHR(0) == KEY_N && CHR(1) == KEY_G && _index > 2 && (CHR(2) == KEY_I || CHR(2) == KEY_E)) {
+        isCorect = false;
+        return;
+    }
+
     // Any character between the initial consonants and the matched vowel pattern must be a vowel
     for (int v = firstVowelIdx; v <= k; v++) {
         if (IS_CONSONANT(CHR(v))) {
@@ -542,12 +553,17 @@ void checkCorrectVowel(vector<vector<Uint16>>& charset, int& i, int& k, const Ui
     // Reject tilde (x) on standalone single vowels where no Vietnamese word exists
     // (e.g. "ex" -> "ẽ", "ox" -> "õ", "ux" -> "ũ", "ax" -> "ã", "ix" -> "ĩ", "yx" -> "ỹ")
     // Also reject hỏi (r) on standalone unaccented 'e' ("er" -> "ẻ") and 'o' ("or" -> "ỏ")
+    // Also reject huyền (f) on standalone unaccented 'o' ("of" -> "ò", because "ò" is not a standalone Vietnamese word)
     if (firstVowelIdx == 0 && _index == 1 && !(TypingWord[0] & (TONE_MASK | TONEW_MASK))) {
         if (IS_KEY_X(markKey)) {
             isCorect = false;
             return;
         }
         if (IS_KEY_R(markKey) && (CHR(0) == KEY_E || CHR(0) == KEY_O)) {
+            isCorect = false;
+            return;
+        }
+        if (IS_KEY_F(markKey) && CHR(0) == KEY_O) {
             isCorect = false;
             return;
         }
@@ -1443,6 +1459,7 @@ void vKeyHandleEvent(const vKeyEvent& event,
         if (!_isCharKeyCode) { //clear all line cache
             _specialChar.clear();
             _typingStates.clear();
+            _isInsideFileExtensionOrPath = false;
         } else { //check and save current word
             if (_spaceCount > 0) {
                 saveWord(KEY_SPACE, _spaceCount);
@@ -1587,7 +1604,14 @@ void vKeyHandleEvent(const vKeyEvent& event,
             //continute save space
             saveWord(KEY_SPACE, _spaceCount);
             _spaceCount = 0;
+            _isInsideFileExtensionOrPath = false;
         } else if (_specialChar.size() > 0) {
+            Uint32 lastSpecialEntry = _specialChar.back();
+            Uint16 lastSpecial = lastSpecialEntry & CHAR_MASK;
+            bool isShift = (lastSpecialEntry & CAPS_MASK) != 0;
+            if (_specialChar.size() == 1 && !isShift && (lastSpecial == KEY_DOT || lastSpecial == KEY_SLASH || lastSpecial == KEY_BACK_SLASH)) {
+                _isInsideFileExtensionOrPath = true;
+            }
             saveSpecialChar();
         }
 
@@ -1622,13 +1646,46 @@ void vKeyHandleEvent(const vKeyEvent& event,
                         break;
                     }
                 }
-            } else if (prevKey == KEY_F && (data == KEY_T || data == KEY_L || data == KEY_R || data == KEY_K || data == KEY_D || data == KEY_P || data == KEY_C)) {
-                // In Vietnamese with huyền mark, voiceless stops (t, c, p) and foreign consonants (l, r, k, d) cannot follow.
-                // Handles soft, gift, lift, left, craft, after, often, reflex, conflict, reflect, deflate.
-                for (int si = 0; si < _index; si++) {
-                    if (TypingWord[si] & MARK2_MASK) {
-                        shouldRestore = true;
-                        break;
+            } else if (prevKey == KEY_F) {
+                // In Vietnamese with huyền mark:
+                // 1. If word already had an ending consonant before F was pressed (e.g. "c-o-n-f" -> còn):
+                //    the Vietnamese syllable is already complete! No letter can ever follow.
+                //    Any following letter indicates an English word (config, confirm, conference, conflict, configure, conform, confs, etc.).
+                // 2. If F was typed after a vowel (e.g. "r-e-f" -> rè, "s-o-f" -> sò):
+                //    in Vietnamese, only valid codas (m for rèm, n for rèn/sòn, g for rèng/sòng, etc.) can follow.
+                //    Vowels (e for refer, a for refactor/sofa, o for reform, u for refuse, i for refine)
+                //    and foreign consonants / voiceless stops (t for soft/after/often, l for reflex, r for refresh, etc.)
+                //    cannot follow in Vietnamese and indicate English!
+                if (_index >= 2 && IS_CONSONANT(CHR(_index - 1))) {
+                    for (int si = 0; si < _index - 1; si++) {
+                        if (TypingWord[si] & MARK2_MASK) {
+                            shouldRestore = true;
+                            break;
+                        }
+                    }
+                } else if (_index >= 1) {
+                    for (int si = 0; si < _index; si++) {
+                        if (TypingWord[si] & MARK2_MASK) {
+                            Uint16 vChar = CHR(si);
+                            if (vChar == KEY_E) {
+                                // "rè" (ref) followed by vowels or non-m/n consonants indicates English (refer, refactor, refresh, reflex, reflect, reform, refuse, refine)
+                                if (data != KEY_M && data != KEY_N && data != KEY_F) {
+                                    shouldRestore = true;
+                                }
+                            } else if (vChar == KEY_O) {
+                                // "sò" (sof) followed by t (soft), a (sofa), w (software), l (softly), e (softer), etc. indicates English
+                                if (data == KEY_T || data == KEY_A || data == KEY_W || data == KEY_L || data == KEY_E ||
+                                    data == KEY_R || data == KEY_K || data == KEY_D || data == KEY_P || data == KEY_C || data == KEY_S) {
+                                    shouldRestore = true;
+                                }
+                            } else {
+                                // Voiceless stops and foreign consonants cannot follow any vowel with huyền
+                                if (data == KEY_T || data == KEY_L || data == KEY_R || data == KEY_K || data == KEY_D || data == KEY_P || data == KEY_C) {
+                                    shouldRestore = true;
+                                }
+                            }
+                            break;
+                        }
                     }
                 }
             }
@@ -1647,8 +1704,8 @@ void vKeyHandleEvent(const vKeyEvent& event,
             }
         }
         
-        if (!IS_SPECIALKEY(data) || tempDisableKey) { //do nothing
-            if (vQuickTelex && IS_QUICK_TELEX_KEY(data)) {
+        if (!IS_SPECIALKEY(data) || tempDisableKey || _isInsideFileExtensionOrPath) { //do nothing
+            if (!_isInsideFileExtensionOrPath && vQuickTelex && IS_QUICK_TELEX_KEY(data)) {
                 handleQuickTelex(data, _isCaps);
                 return;
             } else {
