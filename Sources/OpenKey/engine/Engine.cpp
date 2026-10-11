@@ -1644,7 +1644,8 @@ void vKeyHandleEvent(const vKeyEvent& event,
                     // are 100% valid Vietnamese ending consonants with acute mark and must NEVER be restored!
                     if (data == KEY_K || data == KEY_H || data == KEY_L || data == KEY_D ||
                         data == KEY_R || data == KEY_F || data == KEY_W || data == KEY_Z ||
-                        data == KEY_J || data == KEY_B || data == KEY_V) {
+                        data == KEY_J || data == KEY_B || data == KEY_V ||
+                        (data == KEY_T && _index >= 3 && CHR(0) == KEY_G && CHR(1) == KEY_U)) {
                         for (int si = 0; si < _index; si++) {
                             if (TypingWord[si] & MARK1_MASK) {
                                 shouldRestore = true;
@@ -1653,11 +1654,57 @@ void vKeyHandleEvent(const vKeyEvent& event,
                         }
                     }
                 }
-            } else if (prevKey == KEY_R && (data == KEY_T || data == KEY_K || data == KEY_D || data == KEY_L || data == KEY_P || data == KEY_C)) {
-                for (int si = 0; si < _index; si++) {
-                    if (TypingWord[si] & MARK3_MASK) {
-                        shouldRestore = true;
-                        break;
+            } else if (prevKey == KEY_R) {
+                // In Vietnamese with hỏi mark:
+                // 1. If word already had an ending consonant before R was pressed (e.g. "c-a-n-r" -> cản):
+                //    the Vietnamese syllable is already complete! No letter can ever follow.
+                // 2. If R was typed after a vowel (e.g. "s-e-r" -> sẻ, "v-e-r" -> vẻ, "m-a-r" -> mả):
+                //    the ONLY consonants/vowels that can follow in Vietnamese are M, N, I, U, Y, and R (escape).
+                //    Stop consonants (T, C, P) never take hỏi mark in Vietnamese.
+                //    All other consonants (V, S, G, B, D, K, L, etc.) and non-diphthong vowels (E, O, A) cannot follow!
+                //    Handles server, service, version, person, margin, carbon, target, urgent, virgin, art, work, card, bird, third, border.
+                if (_index >= 2 && IS_CONSONANT(CHR(_index - 1))) {
+                    for (int si = 0; si < _index - 1; si++) {
+                        if (TypingWord[si] & MARK3_MASK) {
+                            shouldRestore = true;
+                            break;
+                        }
+                    }
+                } else if (_index >= 1) {
+                    if (data != KEY_M && data != KEY_N && data != KEY_I && data != KEY_U && data != KEY_Y && data != KEY_R) {
+                        for (int si = 0; si < _index; si++) {
+                            if (TypingWord[si] & MARK3_MASK) {
+                                shouldRestore = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else if (prevKey == KEY_J) {
+                // In Vietnamese with nặng mark:
+                // 1. If word already had an ending consonant before J was pressed (e.g. "e-n-j" -> ẹn, "i-n-j" -> ịn, "b-a-n-j" -> bạn):
+                //    the Vietnamese syllable is already complete! No letter can ever follow.
+                //    Any following letter indicates English (enjoy, inject, ninja, banjo, object, etc.).
+                // 2. If J was typed after a vowel (e.g. "r-e-j" -> rẹ, "m-a-j" -> mạ, "t-r-a-j" -> trạ):
+                //    Valid Vietnamese continuations are ending consonants (P, C, M, T, N), diphthong vowels (I, U, Y), or J (escape).
+                //    Any non-diphthong vowel (E in reject, O in major, E in trajectory/deject, A in pajama)
+                //    and foreign/invalid consonants (K, H, L, D, R, F, W, Z, B, V, S, X, G) indicates English!
+                if (_index >= 2 && IS_CONSONANT(CHR(_index - 1))) {
+                    for (int si = 0; si < _index - 1; si++) {
+                        if (TypingWord[si] & MARK5_MASK) {
+                            shouldRestore = true;
+                            break;
+                        }
+                    }
+                } else if (_index >= 1) {
+                    if (data != KEY_P && data != KEY_C && data != KEY_M && data != KEY_T && data != KEY_N &&
+                        data != KEY_I && data != KEY_U && data != KEY_Y && data != KEY_J) {
+                        for (int si = 0; si < _index; si++) {
+                            if (TypingWord[si] & MARK5_MASK) {
+                                shouldRestore = true;
+                                break;
+                            }
+                        }
                     }
                 }
             } else if (prevKey == KEY_X && data != KEY_N && data != KEY_M && data != KEY_X) {
