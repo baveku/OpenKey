@@ -1623,11 +1623,34 @@ void vKeyHandleEvent(const vKeyEvent& event,
         if (vInputType == vTelex && _stateIndex >= 2) {
             Uint16 prevKey = KeyStates[_stateIndex - 2] & CHAR_MASK;
             bool shouldRestore = false;
-            if (prevKey == KEY_S && (data == KEY_T || data == KEY_H || data == KEY_K || data == KEY_P || data == KEY_M || data == KEY_C || data == KEY_L)) {
-                for (int si = 0; si < _index; si++) {
-                    if (TypingWord[si] & MARK1_MASK) {
-                        shouldRestore = true;
-                        break;
+            if (prevKey == KEY_S) {
+                // If word already had an ending consonant before S was pressed (e.g. "c-a-n-s" -> cán):
+                // the Vietnamese syllable is already complete! No letter can ever follow.
+                // Any following letter indicates an English word (e.g. "artist", "first", "trans").
+                if (_index >= 2 && IS_CONSONANT(CHR(_index - 1))) {
+                    for (int si = 0; si < _index - 1; si++) {
+                        if (TypingWord[si] & MARK1_MASK) {
+                            shouldRestore = true;
+                            break;
+                        }
+                    }
+                } else if (_index >= 1) {
+                    // Foreign consonants that can NEVER end a Vietnamese syllable with acute mark (sắc):
+                    // - K: task, desk, risk, mask, flask, brisk, dusk, musk (Vietnamese never ends in 'k')
+                    // - H: wish, fish, dish, push, crash, flash, fresh (Vietnamese never ends in 'sh')
+                    // - L: tesla, diesel, misled (Vietnamese never ends in 'l')
+                    // - Foreign consonants: D, R, F, W, Z, J, B, V
+                    // NOTE: P (pháp, tháp, cáp, nháp), C (bác, các, rác), M (tám, cám), T (hát, cát, bát)
+                    // are 100% valid Vietnamese ending consonants with acute mark and must NEVER be restored!
+                    if (data == KEY_K || data == KEY_H || data == KEY_L || data == KEY_D ||
+                        data == KEY_R || data == KEY_F || data == KEY_W || data == KEY_Z ||
+                        data == KEY_J || data == KEY_B || data == KEY_V) {
+                        for (int si = 0; si < _index; si++) {
+                            if (TypingWord[si] & MARK1_MASK) {
+                                shouldRestore = true;
+                                break;
+                            }
+                        }
                     }
                 }
             } else if (prevKey == KEY_R && (data == KEY_T || data == KEY_K || data == KEY_D || data == KEY_L || data == KEY_P || data == KEY_C)) {
