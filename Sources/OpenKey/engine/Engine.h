@@ -217,6 +217,11 @@ void vKeyHandleEvent(const vKeyEvent& event,
 void startNewSession();
 
 /**
+ * Check if a key or mouse event breaks the current word
+ */
+bool isWordBreak(const vKeyEvent& event, const vKeyEventState& state, const Uint16& data);
+
+/**
  * do some task in english mode (use for macro)
  */
 void vEnglishMode(const vKeyEventState& state, const Uint16& data, const bool& isCaps, const bool& otherControlKey);

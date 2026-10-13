@@ -7,6 +7,7 @@
 //
 
 #import "OpenKeyManager.h"
+#import "MJAccessibilityUtils.h"
 
 extern void OpenKeyInit(void);
 
@@ -37,6 +38,18 @@ void ReenableEventTap(void) {
     }
 }
 
+void NoteEventTapDisabledByUser(void) {
+    // Trust check must not run inside the event-tap callback.
+    // A blocking TCC call there stalls every mouse and key event.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (MJAccessibilityIsEnabled()) {
+            ReenableEventTap();
+        } else {
+            [OpenKeyManager releaseEventTap];
+        }
+    });
+}
+
 +(BOOL)isInited {
     return _isInited;
 }
@@ -44,9 +57,14 @@ void ReenableEventTap(void) {
 +(BOOL)initEventTap {
     if (_isInited)
         return true;
-    
-    //init modernKey
-    OpenKeyInit();
+    if (!MJAccessibilityIsEnabled())
+        return NO;
+
+    static BOOL engineReady = NO;
+    if (!engineReady) {
+        OpenKeyInit();
+        engineReady = YES;
+    }
     
     // Create an event tap. We are interested in key presses.
     eventMask = ((1 << kCGEventKeyDown) |
@@ -81,9 +99,18 @@ void ReenableEventTap(void) {
     // Enable the event tap.
     CGEventTapEnable(eventTap, true);
     
-    // Watchdog timer: automatically re-enable event tap if system lag, freeze, or timeout disabled it
+    // Watchdog: recover a tap disabled by lag. If Accessibility was revoked,
+    // drop the tap. Re-enabling a head tap without trust freezes the session.
     if (!eventTapWatchdogTimer) {
         eventTapWatchdogTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer * _Nonnull timer) {
+            if (!MJAccessibilityIsEnabled()) {
+                [OpenKeyManager releaseEventTap];
+                return;
+            }
+            if (!_isInited) {
+                [OpenKeyManager initEventTap];
+                return;
+            }
             ReenableEventTap();
         }];
     }
@@ -91,21 +118,30 @@ void ReenableEventTap(void) {
     return YES;
 }
 
-+(BOOL)stopEventTap {
-    if (_isInited) { //release all object
-        if (eventTapWatchdogTimer) {
-            [eventTapWatchdogTimer invalidate];
-            eventTapWatchdogTimer = nil;
-        }
++(void)releaseEventTap {
+    if (!_isInited)
+        return;
+
+    if (eventTap)
+        CGEventTapEnable(eventTap, false);
+    if (runLoopSource) {
         CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, kCFRunLoopCommonModes);
         CFRelease(runLoopSource);
         runLoopSource = nil;
-        
+    }
+    if (eventTap) {
         CFMachPortInvalidate(eventTap);
         CFRelease(eventTap);
         eventTap = nil;
-        
-        _isInited = false;
+    }
+    _isInited = NO;
+}
+
++(BOOL)stopEventTap {
+    [self releaseEventTap];
+    if (eventTapWatchdogTimer) {
+        [eventTapWatchdogTimer invalidate];
+        eventTapWatchdogTimer = nil;
     }
     return YES;
 }

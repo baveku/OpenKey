@@ -10,7 +10,8 @@
 #include <libproc.h>
 #include <sys/proc_info.h>
 
-#define OPENKEY_BUNDLE @"com.tuyenmai.openkey"
+#define OPENKEY_BUNDLE @"dev.josbach.openkey"
+#define OPENKEY_LEGACY_BUNDLE @"com.tuyenmai.openkey"
 
 @interface AppDelegate ()
 
@@ -26,7 +27,8 @@
     BOOL isRunning = NO;
 
     for (NSRunningApplication *app in runningApps) {
-        if ([app.bundleIdentifier isEqualToString:OPENKEY_BUNDLE]) {
+        if ([app.bundleIdentifier isEqualToString:OPENKEY_BUNDLE] ||
+            [app.bundleIdentifier isEqualToString:OPENKEY_LEGACY_BUNDLE]) {
             pid_t pid = app.processIdentifier;
             struct proc_bsdinfo proc;
             int size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &proc, sizeof(proc));

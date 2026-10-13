@@ -131,7 +131,8 @@ extern bool convertToolDontAlertWhenCompleted;
     BOOL alreadyRunning = NO;
 
     for (NSRunningApplication *app in runningApps) {
-        if ([app.bundleIdentifier isEqualToString:OPENKEY_BUNDLE] &&
+        if (([app.bundleIdentifier isEqualToString:OPENKEY_BUNDLE] ||
+             [app.bundleIdentifier isEqualToString:OPENKEY_LEGACY_BUNDLE]) &&
             app.processIdentifier != myPID) {
             pid_t pid = app.processIdentifier;
             struct proc_bsdinfo proc;

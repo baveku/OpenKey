@@ -9,7 +9,8 @@
 #import <Cocoa/Cocoa.h>
 #import "ViewController.h"
 
-#define OPENKEY_BUNDLE @"com.tuyenmai.openkey"
+#define OPENKEY_BUNDLE @"dev.josbach.openkey"
+#define OPENKEY_LEGACY_BUNDLE @"com.tuyenmai.openkey"
 
 @interface AppDelegate : NSObject <NSApplicationDelegate>
 

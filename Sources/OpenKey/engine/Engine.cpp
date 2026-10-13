@@ -93,6 +93,7 @@ static Uint32 KeyStates[MAX_BUFF];
 static Byte _stateIndex = 0;
 
 static bool tempDisableKey = false;
+static int deferredBackspace = 0;
 static int capsElem;
 static int key;
 static int markElem;
@@ -136,6 +137,7 @@ string wideStringToUtf8(const wstring& str) {
 void* vKeyInit() {
     _index = 0;
     _stateIndex = 0;
+    tempDisableKey = false;
     _useSpellCheckingBefore = vCheckSpelling;
     _typingStatesData.clear();
     _typingStates.clear();
@@ -543,6 +545,14 @@ void checkCorrectVowel(vector<vector<Uint16>>& charset, int& i, int& k, const Ui
             return;
         }
     }
+
+    // In Vietnamese, vowel 'e'/'ê' at the start of a vowel nucleus can only be followed by 'o' (eo) or 'u' (êu).
+    // Rejects English 'ea', 'ei', 'ey' words (sea, season, seat, read, real, hear, near, year, weird, seize).
+    if (firstVowelIdx + 1 < _index && CHR(firstVowelIdx) == KEY_E && !IS_CONSONANT(CHR(firstVowelIdx + 1)) &&
+        CHR(firstVowelIdx + 1) != KEY_O && CHR(firstVowelIdx + 1) != KEY_U) {
+        isCorect = false;
+        return;
+    }
     
     // Reject acute and tilde marks for standalone 'in'
     if (firstVowelIdx == 0 && _index >= 2 && CHR(0) == KEY_I && CHR(1) == KEY_N && (IS_KEY_S(markKey) || IS_KEY_X(markKey))) {
@@ -577,6 +587,23 @@ void checkCorrectVowel(vector<vector<Uint16>>& charset, int& i, int& k, const Ui
             isCorect = false;
             return;
         }
+    }
+
+    // In Vietnamese orthography, initial "g" cannot precede 'e' or 'ê' (must be "gh").
+    // Prevents English words like "get", "gene", "general" from falsely receiving marks or circumflex.
+    if (firstVowelIdx == 1 && CHR(0) == KEY_G && _index >= 2 && CHR(1) == KEY_E) {
+        isCorect = false;
+        return;
+    }
+
+    // Reject tone marks, horn (w), and 'e' circumflex on bare open initial "p".
+    // Bare "p" words (per, pow, power, part, port, porn, past, post, pest, pure, peer, pause) stay English,
+    // while closed loanwords like "pins" -> "pín" or "pacs" -> "pác" still work.
+    if (firstVowelIdx == 1 && CHR(0) == KEY_P &&
+        (IS_KEY_W(markKey) || markKey == KEY_E ||
+         (IS_MARK_KEY(markKey) && (CHR(1) == KEY_E || (!IS_CONSONANT(CHR(_index - 1)) && !(TypingWord[1] & TONE_MASK)))))) {
+        isCorect = false;
+        return;
     }
     
     //limit mark for end consonant: "C", "T", "P"
@@ -1046,6 +1073,14 @@ void insertW(const Uint16& data, const bool& isCaps) {
                         hCode = vWillProcess;
                         if (CHR(ii) == KEY_U){
                             TypingWord[ii] = KEY_W | ((TypingWord[ii] & CAPS_MASK) ? CAPS_MASK : 0);
+                            // ư + w -> w. The first w is gone from the screen.
+                            // Drop it from the key history or wwarning / wwork
+                            // print both w's when the word returns to English.
+                            if (_stateIndex >= 2
+                                && (KeyStates[_stateIndex - 1] & CHAR_MASK) == KEY_W
+                                && (KeyStates[_stateIndex - 2] & CHAR_MASK) == KEY_W) {
+                                _stateIndex--;
+                            }
                         } else if (CHR(ii) == KEY_O) {
                             hCode = vRestore;
                             TypingWord[ii] = KEY_O | ((TypingWord[ii] & CAPS_MASK) ? CAPS_MASK : 0);
@@ -1096,6 +1131,13 @@ void checkForStandaloneChar(const Uint16& data, const bool& isCaps, const Uint32
         hNCC = 1;
         TypingWord[_index - 1] = data | (isCaps ? CAPS_MASK : 0);
         hData[0] = GET(TypingWord[_index - 1]);
+        // ww -> w. The first w is no longer on screen. Drop it from the key
+        // history, or a later restore prints both (wwarning, wwork).
+        if (_stateIndex >= 2
+            && (KeyStates[_stateIndex - 1] & CHAR_MASK) == data
+            && (KeyStates[_stateIndex - 2] & CHAR_MASK) == data) {
+            _stateIndex--;
+        }
         return;
     }
     
@@ -1147,6 +1189,43 @@ void upperCaseFirstCharacter() {
         if (vUseMacro)
             hMacroKey[0] |= CAPS_MASK;
     }
+}
+
+// vietej -> việt. The second e is typed after t/c/p. It stays a plain letter
+// until the tone, so piece and pieces stay English.
+// The vowel must sit in iê, yê, oa, or uô. data and photo do not.
+bool deferredCircumflex(bool extraTyped, Uint16 vowel, int& vowelAt) {
+    vowelAt = -1;
+    if (vowel != KEY_E && vowel != KEY_A && vowel != KEY_O)
+        return false;
+    int end = extraTyped ? _index - 1 : _index;
+    if (end < 1)
+        return false;
+    Uint16 coda = CHR(end - 1);
+    if (coda != KEY_T && coda != KEY_C && coda != KEY_P && coda != KEY_M)
+        return false;
+    bool same = false;
+    bool pair = false;
+    bool marked = false;
+    for (int si = end - 2; si >= 0; si--) {
+        if (IS_CONSONANT(CHR(si)))
+            break;
+        if (TypingWord[si] & MARK_MASK)
+            marked = true;
+        if (CHR(si) == vowel && !(TypingWord[si] & TONE_MASK)) {
+            same = true;
+            vowelAt = si;
+        }
+        if (vowel == KEY_E && (CHR(si) == KEY_I || CHR(si) == KEY_Y))
+            pair = true;
+        if (vowel == KEY_O && CHR(si) == KEY_U)
+            pair = true;
+        if (vowel == KEY_A && (CHR(si) == KEY_U || CHR(si) == KEY_O))
+            pair = true;
+    }
+    // A tone already on the syllable means this vowel adds the circumflex now
+    // (thuatja -> thuật). vietej has no tone yet, so the e waits.
+    return same && pair && !marked;
 }
 
 void handleMainKey(const Uint16& data, const bool& isCaps) {
@@ -1216,6 +1295,25 @@ void handleMainKey(const Uint16& data, const bool& isCaps) {
     
     //if is mark key
     if (IS_MARK_KEY(data)) {
+        int extraBackspace = 0;
+        int vowelAt = -1;
+        if (_index > 0 && deferredCircumflex(true, CHR(_index - 1), vowelAt)) {
+            Uint16 coda = CHR(_index - 2);
+            Uint16 last = CHR(_index - 1);
+            // pieces, nieces: s after ie + c is the English plural.
+            // f/r/x cannot sit on p/t/c.
+            bool pieces = data == KEY_S && coda == KEY_C && last == KEY_E && (CHR(0) == KEY_P || CHR(0) == KEY_N);
+            bool legalTone = coda == KEY_M
+                ? (data == KEY_S || data == KEY_F || data == KEY_R || data == KEY_X || data == KEY_J)
+                : (data == KEY_J || (data == KEY_S && !pieces));
+            if (!legalTone) {
+                insertKey(data, isCaps);
+                return;
+            }
+            TypingWord[vowelAt] |= TONE_MASK;
+            _index--;
+            extraBackspace = 1;
+        }
         for (auto& vowelEntry : _vowelForMark) {
             vector<vector<Uint16>>& charset = vowelEntry.second;
             isCorect = false;
@@ -1249,7 +1347,13 @@ void handleMainKey(const Uint16& data, const bool& isCaps) {
         }
 
         if (!isChanged) {
+            if (extraBackspace) {
+                _index++;
+                TypingWord[vowelAt] &= ~TONE_MASK;
+            }
             insertKey(data, isCaps);
+        } else if (extraBackspace) {
+            deferredBackspace = extraBackspace;
         }
 
         return;
@@ -1265,6 +1369,14 @@ void handleMainKey(const Uint16& data, const bool& isCaps) {
         }
     }
     
+    int deferredAt = -1;
+    if (deferredCircumflex(false, data, deferredAt)) {
+        // Keep the letter. The tone key, if it comes, adds the circumflex.
+        insertKey(data, isCaps, false);
+        tempDisableKey = false;
+        return;
+    }
+
     keyForAEO = ((vInputType != vVNI) ? data : ((data == KEY_7 || data == KEY_8 ? KEY_W : (data == KEY_6 ? TypingWord[VEI] : data))));
     vector<vector<Uint16>>& charset = _vowel[keyForAEO];
     isCorect = false;
@@ -1446,7 +1558,7 @@ void vKeyHandleEvent(const vKeyEvent& event,
             _hasHandledMacro = true;
         } else if ((vQuickStartConsonant || vQuickEndConsonant) && !tempDisableKey && isMacroBreakCode(data)) {
             checkQuickConsonant();
-        } else if (vRestoreIfWrongSpelling && isWordBreak(event, state, data)) { //restore key if wrong spelling with break-key
+        } else if (vRestoreIfWrongSpelling && event != vKeyEvent::Mouse && isWordBreak(event, state, data)) { //restore key if wrong spelling with break-key
             if (!tempDisableKey && vCheckSpelling) {
                 checkSpelling(true); //force check spelling
             }
@@ -1532,6 +1644,8 @@ void vKeyHandleEvent(const vKeyEvent& event,
         }
         vCheckSpelling = _useSpellCheckingBefore;
         _willTempOffEngine = false;
+        // An English word such as "motion" turns composition off for that word only.
+        tempDisableKey = false;
     } else if (data == KEY_DELETE) {
         hCode = vDoNothing;
         hExt = 2; //delete
@@ -1591,11 +1705,6 @@ void vKeyHandleEvent(const vKeyEvent& event,
             hExt = 2; //delete key
         }
     } else { //START AND CHECK KEY
-        if (_willTempOffEngine) {
-            hCode = vDoNothing;
-            hExt = 3;
-            return;
-        }
         if (_spaceCount > 0) {
             hBPC = 0;
             hNCC = 0;
@@ -1605,7 +1714,13 @@ void vKeyHandleEvent(const vKeyEvent& event,
             saveWord(KEY_SPACE, _spaceCount);
             _spaceCount = 0;
             _isInsideFileExtensionOrPath = false;
-        } else if (_specialChar.size() > 0) {
+        }
+        if (_willTempOffEngine) {
+            hCode = vDoNothing;
+            hExt = 3;
+            return;
+        }
+        if (_specialChar.size() > 0) {
             Uint32 lastSpecialEntry = _specialChar.back();
             Uint16 lastSpecial = lastSpecialEntry & CHAR_MASK;
             bool isShift = (lastSpecialEntry & CAPS_MASK) != 0;
@@ -1615,26 +1730,150 @@ void vKeyHandleEvent(const vKeyEvent& event,
             saveSpecialChar();
         }
 
+        deferredBackspace = 0;
         insertState(data, _isCaps); //save state
+        
+        // c+h, n+h, n+g are one ending. The tone key may sit between the two letters
+        // (thicsh -> thích, bansh -> bánh, tiensg -> tiếng). That is still Vietnamese.
+        bool completingCoda = _index >= 1 && (
+            (CHR(_index - 1) == KEY_C && data == KEY_H) ||
+            (CHR(_index - 1) == KEY_N && (data == KEY_H || data == KEY_G)));
+        // thuajat -> thuật, nhajat -> nhật. The second a adds â.
+        // viejet -> việt, chuyenje -> chuyện. A second e/o adds ê/ô only inside iê, yê, or uô.
+        // there and here stay English: a bare second e is not iê.
+        bool repeatsMarkedVowel = false;
+        if (data == KEY_A || data == KEY_E || data == KEY_O) {
+            bool same = false;
+            bool pair = false;
+            for (int si = _index - 1; si >= 0; si--) {
+                if (IS_CONSONANT(CHR(si)))
+                    break;
+                if (CHR(si) == data && !(TypingWord[si] & TONE_MASK))
+                    same = true;
+                if (data == KEY_E && (CHR(si) == KEY_I || CHR(si) == KEY_Y))
+                    pair = true;
+                if (data == KEY_O && CHR(si) == KEY_U)
+                    pair = true;
+            }
+            // bojo -> ộ. A bare second o adds ô, the same way a second a adds â.
+            // A bare second e does not: there and here stay English.
+            repeatsMarkedVowel = (data == KEY_A || data == KEY_O) ? same : (same && pair);
+        }
+        // tienje -> tiện, thuatja -> thuật. The second vowel sits after the coda.
+        // data stays English: d-a-t-a has no tone yet.
+        bool repeatVowelBeforeCoda = false;
+        if ((data == KEY_A || data == KEY_E || data == KEY_O) && _index >= 1 && IS_CONSONANT(CHR(_index - 1))) {
+            int codaStart = _index - 1;
+            while (codaStart >= 0 && IS_CONSONANT(CHR(codaStart)))
+                codaStart--;
+            int codaLen = (_index - 1) - codaStart;
+            bool same = false;
+            bool marked = false;
+            bool pair = data == KEY_A;
+            for (int si = codaStart; si >= 0; si--) {
+                if (IS_CONSONANT(CHR(si)))
+                    break;
+                if (TypingWord[si] & MARK_MASK)
+                    marked = true;
+                if (CHR(si) == data && !(TypingWord[si] & TONE_MASK))
+                    same = true;
+                if (data == KEY_E && (CHR(si) == KEY_I || CHR(si) == KEY_Y))
+                    pair = true;
+                if (data == KEY_O && CHR(si) == KEY_U)
+                    pair = true;
+            }
+            if (same && ((marked && (pair || data == KEY_O || codaLen >= 2 || CHR(_index - 1) != KEY_N)) || codaLen >= 2))
+                repeatVowelBeforeCoda = true;
+        }
+        // sử + a = sửa, sử + o = sướ. a/o still completes the diphthong after the tone.
+        bool completesUa = false;
+        if ((data == KEY_A || data == KEY_O) && _index >= 1) {
+            for (int si = 0; si < _index; si++) {
+                if (CHR(si) == KEY_U && (TypingWord[si] & TONEW_MASK)) {
+                    completesUa = true;
+                    break;
+                }
+            }
+            if (!completesUa && data == KEY_A && _index >= 2 && CHR(_index - 1) == KEY_Y && CHR(_index - 2) == KEY_U) {
+                completesUa = true;
+            }
+        }
         
         // Check if previous key was a Telex mark key (S, R, X, F) that added a tone mark,
         // and current key produces an impossible Vietnamese cluster/sequence but a common English word.
         // Restore the entire word to its raw keystrokes!
-        if (vInputType == vTelex && _stateIndex >= 2) {
+        // w after a tone still modifies the vowel (hopjw -> hợp, muotjw -> mượt).
+        // It is not an English continuation of the tone key.
+        // Pressing the same tone key again removes the mark (dunss -> duns). Do not
+        // dump both keystrokes, or the letter appears twice.
+        bool repeatTone = _stateIndex >= 2
+            && (KeyStates[_stateIndex - 2] & CHAR_MASK) == data
+            && (data == KEY_S || data == KEY_F || data == KEY_R || data == KEY_X || data == KEY_J);
+        bool hasPlainD = data == KEY_D && _index >= 1 && CHR(0) == KEY_D && !(TypingWord[0] & TONE_MASK);
+        if (vInputType == vTelex && tempDisableKey && _stateIndex > _index + 1) {
+            hCode = vWillProcess;
+            hBPC = _index;
+            hNCC = _stateIndex;
+            for (i = 0; i < _stateIndex; i++) {
+                TypingWord[i] = KeyStates[i];
+                hData[_stateIndex - 1 - i] = TypingWord[i];
+            }
+            _index = _stateIndex;
+            _spellingOK = true;
+            return;
+        }
+        if (vInputType == vTelex && !tempDisableKey && !_isInsideFileExtensionOrPath && _stateIndex >= 2 && data != KEY_W && !repeatTone && !hasPlainD) {
             Uint16 prevKey = KeyStates[_stateIndex - 2] & CHAR_MASK;
             bool shouldRestore = false;
-            if (prevKey == KEY_S) {
+            Uint32 incomingMark = (data == KEY_S) ? MARK1_MASK :
+                                  (data == KEY_F) ? MARK2_MASK :
+                                  (data == KEY_R) ? MARK3_MASK :
+                                  (data == KEY_X) ? MARK4_MASK :
+                                  (data == KEY_J) ? MARK5_MASK : 0;
+            if (incomingMark != 0) {
+                for (int si = 0; si < _index; si++) {
+                    if ((TypingWord[si] & MARK_MASK) == incomingMark) {
+                        shouldRestore = true;
+                        break;
+                    }
+                }
+            }
+            // hopjw stays hợp. A further letter means the w was English (answer, unswerving).
+            // swar stays sửa: s is the initial, w is ư, a makes ưa. swim/sweet still restore.
+            if (prevKey == KEY_W && data != KEY_Z && _stateIndex >= 3) {
+                Uint16 beforeW = KeyStates[_stateIndex - 3] & CHAR_MASK;
+                bool toneLetter = beforeW == KEY_S || beforeW == KEY_F || beforeW == KEY_R
+                    || beforeW == KEY_X || beforeW == KEY_J;
+                bool vowelBeforeTone = false;
+                if (toneLetter) {
+                    for (int si = (int)_stateIndex - 4; si >= 0; si--) {
+                        Uint16 earlier = KeyStates[si] & CHAR_MASK;
+                        if (earlier == KEY_A || earlier == KEY_E || earlier == KEY_I
+                            || earlier == KEY_O || earlier == KEY_U || earlier == KEY_Y) {
+                            vowelBeforeTone = true;
+                            break;
+                        }
+                    }
+                }
+                // swra -> sửa: tone may sit between ư and a. swim/sweet still restore.
+                bool uaAfterInitial = toneLetter && !vowelBeforeTone
+                    && (data == KEY_A || data == KEY_O
+                        || data == KEY_S || data == KEY_F || data == KEY_R
+                        || data == KEY_X || data == KEY_J);
+                if (toneLetter && !uaAfterInitial)
+                    shouldRestore = true;
+            } else if (prevKey == KEY_S && !repeatVowelBeforeCoda) {
                 // If word already had an ending consonant before S was pressed (e.g. "c-a-n-s" -> cán):
                 // the Vietnamese syllable is already complete! No letter can ever follow.
                 // Any following letter indicates an English word (e.g. "artist", "first", "trans").
-                if (_index >= 2 && IS_CONSONANT(CHR(_index - 1))) {
+                if (_index >= 2 && IS_CONSONANT(CHR(_index - 1)) && !completingCoda) {
                     for (int si = 0; si < _index - 1; si++) {
                         if (TypingWord[si] & MARK1_MASK) {
                             shouldRestore = true;
                             break;
                         }
                     }
-                } else if (_index >= 1) {
+                } else if (_index >= 1 && !completingCoda) {
                     // Foreign consonants that can NEVER end a Vietnamese syllable with acute mark (sắc):
                     // - K: task, desk, risk, mask, flask, brisk, dusk, musk (Vietnamese never ends in 'k')
                     // - H: wish, fish, dish, push, crash, flash, fresh (Vietnamese never ends in 'sh')
@@ -1654,7 +1893,7 @@ void vKeyHandleEvent(const vKeyEvent& event,
                         }
                     }
                 }
-            } else if (prevKey == KEY_R) {
+            } else if (prevKey == KEY_R && !repeatVowelBeforeCoda) {
                 // In Vietnamese with hỏi mark:
                 // 1. If word already had an ending consonant before R was pressed (e.g. "c-a-n-r" -> cản):
                 //    the Vietnamese syllable is already complete! No letter can ever follow.
@@ -1663,15 +1902,15 @@ void vKeyHandleEvent(const vKeyEvent& event,
                 //    Stop consonants (T, C, P) never take hỏi mark in Vietnamese.
                 //    All other consonants (V, S, G, B, D, K, L, etc.) and non-diphthong vowels (E, O, A) cannot follow!
                 //    Handles server, service, version, person, margin, carbon, target, urgent, virgin, art, work, card, bird, third, border.
-                if (_index >= 2 && IS_CONSONANT(CHR(_index - 1))) {
+                if (_index >= 2 && IS_CONSONANT(CHR(_index - 1)) && !completingCoda) {
                     for (int si = 0; si < _index - 1; si++) {
                         if (TypingWord[si] & MARK3_MASK) {
                             shouldRestore = true;
                             break;
                         }
                     }
-                } else if (_index >= 1) {
-                    if (data != KEY_M && data != KEY_N && data != KEY_I && data != KEY_U && data != KEY_Y && data != KEY_R) {
+                } else if (_index >= 1 && !completingCoda) {
+                    if (data != KEY_M && data != KEY_N && data != KEY_I && data != KEY_U && data != KEY_Y && data != KEY_R && !completesUa && !repeatsMarkedVowel) {
                         for (int si = 0; si < _index; si++) {
                             if (TypingWord[si] & MARK3_MASK) {
                                 shouldRestore = true;
@@ -1680,7 +1919,7 @@ void vKeyHandleEvent(const vKeyEvent& event,
                         }
                     }
                 }
-            } else if (prevKey == KEY_J) {
+            } else if (prevKey == KEY_J && !repeatVowelBeforeCoda) {
                 // In Vietnamese with nặng mark:
                 // 1. If word already had an ending consonant before J was pressed (e.g. "e-n-j" -> ẹn, "i-n-j" -> ịn, "b-a-n-j" -> bạn):
                 //    the Vietnamese syllable is already complete! No letter can ever follow.
@@ -1689,16 +1928,16 @@ void vKeyHandleEvent(const vKeyEvent& event,
                 //    Valid Vietnamese continuations are ending consonants (P, C, M, T, N), diphthong vowels (I, U, Y), or J (escape).
                 //    Any non-diphthong vowel (E in reject, O in major, E in trajectory/deject, A in pajama)
                 //    and foreign/invalid consonants (K, H, L, D, R, F, W, Z, B, V, S, X, G) indicates English!
-                if (_index >= 2 && IS_CONSONANT(CHR(_index - 1))) {
+                if (_index >= 2 && IS_CONSONANT(CHR(_index - 1)) && !completingCoda) {
                     for (int si = 0; si < _index - 1; si++) {
                         if (TypingWord[si] & MARK5_MASK) {
                             shouldRestore = true;
                             break;
                         }
                     }
-                } else if (_index >= 1) {
+                } else if (_index >= 1 && !completingCoda) {
                     if (data != KEY_P && data != KEY_C && data != KEY_M && data != KEY_T && data != KEY_N &&
-                        data != KEY_I && data != KEY_U && data != KEY_Y && data != KEY_J) {
+                        data != KEY_I && data != KEY_U && data != KEY_Y && data != KEY_J && !completesUa && !repeatsMarkedVowel) {
                         for (int si = 0; si < _index; si++) {
                             if (TypingWord[si] & MARK5_MASK) {
                                 shouldRestore = true;
@@ -1707,7 +1946,7 @@ void vKeyHandleEvent(const vKeyEvent& event,
                         }
                     }
                 }
-            } else if (prevKey == KEY_X && data != KEY_N && data != KEY_M && data != KEY_X) {
+            } else if (prevKey == KEY_X && !completingCoda && !completesUa && !repeatsMarkedVowel && !repeatVowelBeforeCoda && data != KEY_N && data != KEY_M && data != KEY_X) {
                 // In Vietnamese with tilde mark, only n, m, or x (escape) can follow.
                 // Any other consonant or vowel indicates English (next, text, taxi, pixel, mixer, boxing, nexus, sixteen, sixty, sexy, toxic, maximum).
                 for (int si = 0; si < _index; si++) {
@@ -1716,7 +1955,7 @@ void vKeyHandleEvent(const vKeyEvent& event,
                         break;
                     }
                 }
-            } else if (prevKey == KEY_F) {
+            } else if (prevKey == KEY_F && !repeatVowelBeforeCoda) {
                 // In Vietnamese with huyền mark:
                 // 1. If word already had an ending consonant before F was pressed (e.g. "c-o-n-f" -> còn):
                 //    the Vietnamese syllable is already complete! No letter can ever follow.
@@ -1726,14 +1965,14 @@ void vKeyHandleEvent(const vKeyEvent& event,
                 //    Vowels (e for refer, a for refactor/sofa, o for reform, u for refuse, i for refine)
                 //    and foreign consonants / voiceless stops (t for soft/after/often, l for reflex, r for refresh, etc.)
                 //    cannot follow in Vietnamese and indicate English!
-                if (_index >= 2 && IS_CONSONANT(CHR(_index - 1))) {
+                if (_index >= 2 && IS_CONSONANT(CHR(_index - 1)) && !completingCoda) {
                     for (int si = 0; si < _index - 1; si++) {
                         if (TypingWord[si] & MARK2_MASK) {
                             shouldRestore = true;
                             break;
                         }
                     }
-                } else if (_index >= 1) {
+                } else if (_index >= 1 && !completingCoda) {
                     for (int si = 0; si < _index; si++) {
                         if (TypingWord[si] & MARK2_MASK) {
                             Uint16 vChar = CHR(si);
@@ -1743,9 +1982,11 @@ void vKeyHandleEvent(const vKeyEvent& event,
                                     shouldRestore = true;
                                 }
                             } else if (vChar == KEY_O) {
-                                // "sò" (sof) followed by t (soft), a (sofa), w (software), l (softly), e (softer), etc. indicates English
-                                if (data == KEY_T || data == KEY_A || data == KEY_W || data == KEY_L || data == KEY_E ||
-                                    data == KEY_R || data == KEY_K || data == KEY_D || data == KEY_P || data == KEY_C || data == KEY_S) {
+                                // "sò" (sof) followed by t (soft), a (sofa), w (software), l (softly), e (softer), etc. indicates English.
+                                // hoafat stays hoầt: that a repeats the a of oa.
+                                if (data == KEY_T || data == KEY_W || data == KEY_L || data == KEY_E ||
+                                    data == KEY_R || data == KEY_K || data == KEY_D || data == KEY_P || data == KEY_C || data == KEY_S
+                                    || (data == KEY_A && !repeatsMarkedVowel)) {
                                     shouldRestore = true;
                                 }
                             } else {
@@ -1759,6 +2000,117 @@ void vKeyHandleEvent(const vKeyEvent& event,
                     }
                 }
             }
+            // oo/ee/aa/w just changed the vowel. k, l, d, b, v, and a lone g
+            // never end a Vietnamese syllable (book, look, good, tool, google, bowl).
+            bool doubledVowel = _stateIndex >= 3
+                && (KeyStates[_stateIndex - 3] & CHAR_MASK) == prevKey
+                && (prevKey == KEY_A || prevKey == KEY_E || prevKey == KEY_O);
+            bool justModifiedVowel = prevKey == KEY_W || doubledVowel;
+            // dudowjc -> được. A later d still strikes đ when an earlier d is plain.
+            // good stays English: its d is not a second d.
+            bool hasPlainD = false;
+            if (data == KEY_D) {
+                for (int si = 0; si < _index; si++) {
+                    if (CHR(si) == KEY_D && !(TypingWord[si] & TONE_MASK)) {
+                        hasPlainD = true;
+                        break;
+                    }
+                }
+            }
+            bool illegalCoda = data == KEY_K || data == KEY_L || data == KEY_B || data == KEY_V
+                || (data == KEY_D && !hasPlainD)
+                || (data == KEY_G && !(_index >= 1 && CHR(_index - 1) == KEY_N));
+            if (justModifiedVowel && illegalCoda)
+                shouldRestore = true;
+            // sojourn: sổ + u is not a syllable, so the raw word comes back.
+            // thuajat: ậ + t is thuật, so t stays.
+            if (!shouldRestore && _index >= 1
+                && data != KEY_S && data != KEY_F && data != KEY_R && data != KEY_X
+                && data != KEY_J && data != KEY_Z && data != KEY_W && !completingCoda) {
+                int vi = _index - 1;
+                while (vi >= 0 && IS_CONSONANT(CHR(vi))) vi--;
+                if (vi >= 0 && (TypingWord[vi] & TONE_MASK) && (TypingWord[vi] & MARK_MASK)) {
+                    Uint16 v = CHR(vi);
+                    bool ok = data == KEY_C || data == KEY_M || data == KEY_N || data == KEY_P || data == KEY_T;
+                    if (v == KEY_A) ok = ok || data == KEY_U || data == KEY_Y || data == KEY_I || data == KEY_O;
+                    if (v == KEY_E) ok = ok || data == KEY_U;
+                    if (v == KEY_O) ok = ok || data == KEY_I;
+                    if (!ok) shouldRestore = true;
+                }
+            }
+            // The same consonants never follow a vowel at all (awful, hello, follow).
+            if (!shouldRestore && _index >= 1 && !IS_CONSONANT(CHR(_index - 1)) && illegalCoda)
+                shouldRestore = true;
+            // A coda is already in place. Another letter starts a new word or is English
+            // (owner, download, remember). Tone keys and w still belong to this syllable.
+            if (!shouldRestore && _index >= 2 && IS_CONSONANT(CHR(_index - 1)) && !completingCoda) {
+                bool vowelBefore = false;
+                for (int si = 0; si < _index - 1; si++) {
+                    if (!IS_CONSONANT(CHR(si))) {
+                        vowelBefore = true;
+                        break;
+                    }
+                }
+                bool toneOrHorn = data == KEY_S || data == KEY_F || data == KEY_R || data == KEY_X
+                    || data == KEY_J || data == KEY_Z || data == KEY_W;
+                // tienegs -> tiếng. The second e of iê sits after n, before g.
+                // remember stays English: its consonant is m, which cannot grow.
+                bool repeatVowelBeforeN = false;
+                if ((data == KEY_E || data == KEY_O || data == KEY_A) && CHR(_index - 1) == KEY_N) {
+                    for (int si = _index - 2; si >= 0; si--) {
+                        if (IS_CONSONANT(CHR(si)))
+                            break;
+                        if (CHR(si) == data && !(TypingWord[si] & TONE_MASK)) {
+                            repeatVowelBeforeN = true;
+                            break;
+                        }
+                    }
+                }
+                int deferredAt = -1;
+                bool deferCircumflex = deferredCircumflex(false, data, deferredAt);
+                if (vowelBefore && !toneOrHorn && !repeatVowelBeforeN && !repeatVowelBeforeCoda && !deferCircumflex)
+                    shouldRestore = true;
+            }
+            // e does not follow ơ, ă, ô, ê, ư, â (tower, awesome, choose).
+            // Plain o + e stays oe (khoẻ).
+            if (!shouldRestore && data == KEY_E && _index >= 1
+                && ((!IS_CONSONANT(CHR(_index - 1)) && (TypingWord[_index - 1] & (TONE_MASK | TONEW_MASK)))
+                    || (_index == 2 && CHR(0) == KEY_D && (TypingWord[0] & TONE_MASK) && CHR(1) == KEY_U)))
+                shouldRestore = true;
+            // â is typed aa. a after ă is the English word await.
+            if (!shouldRestore && data == KEY_A && _index >= 1
+                && CHR(_index - 1) == KEY_A && (TypingWord[_index - 1] & TONEW_MASK))
+                shouldRestore = true;
+            // y here is the glide of ay/ây/uy/ăy (lấy). A following letter is a new word
+            // (lawyer, async), except a tone key. u+y+e is uyê (khuyến, nguyễn).
+            // thayas -> thấy: the second a of â sits after y.
+            bool doublesVowelAfterY = false;
+            if (_index >= 2 && CHR(_index - 1) == KEY_Y
+                && (data == KEY_A || data == KEY_E || data == KEY_O || data == KEY_W)) {
+                for (int si = _index - 2; si >= 0; si--) {
+                    if (IS_CONSONANT(CHR(si)))
+                        break;
+                    if (data == KEY_W) {
+                        if (CHR(si) == KEY_A || CHR(si) == KEY_O || CHR(si) == KEY_U) {
+                            doublesVowelAfterY = true;
+                            break;
+                        }
+                    } else if (CHR(si) == data && !(TypingWord[si] & TONE_MASK)) {
+                        doublesVowelAfterY = true;
+                        break;
+                    }
+                }
+            }
+            bool validAfterUy = CHR(_index - 2) == KEY_U && !(TypingWord[_index - 2] & TONEW_MASK)
+                && (data == KEY_E || data == KEY_A || data == KEY_U || data == KEY_T
+                    || data == KEY_P || data == KEY_N || data == KEY_C);
+            if (!shouldRestore && _index >= 2 && CHR(_index - 1) == KEY_Y
+                && !IS_CONSONANT(CHR(_index - 2))
+                && !validAfterUy
+                && !doublesVowelAfterY
+                && data != KEY_S && data != KEY_F && data != KEY_R && data != KEY_X
+                && data != KEY_J && data != KEY_Z)
+                shouldRestore = true;
             if (shouldRestore) {
                 hCode = vWillProcess;
                 hBPC = _index;
@@ -1797,12 +2149,31 @@ void vKeyHandleEvent(const vKeyEvent& event,
                 checkGrammar(-1);
             } else {
                 checkGrammar(0);
+                // The extra vowel was already removed from the word. The screen
+                // still has it, so delete one more character (vietej -> việt).
+                if (deferredBackspace)
+                    hBPC += deferredBackspace;
             }
         }
         
         if (hCode == vRestore) {
-            insertKey(data, _isCaps);
-            _stateIndex--;
+            if (vInputType == vTelex && repeatTone && _stateIndex > _index + 2) {
+                hCode = vWillProcess;
+                hBPC = _index;
+                hNCC = _stateIndex;
+                for (i = 0; i < _stateIndex; i++) {
+                    TypingWord[i] = KeyStates[i];
+                    hData[_stateIndex - 1 - i] = TypingWord[i];
+                }
+                _index = _stateIndex;
+                tempDisableKey = true;
+                _spellingOK = true;
+                return;
+            }
+            insertKey(data, _isCaps, false);
+            if (!repeatTone) {
+                _stateIndex--;
+            }
         }
         
         //insert or replace key for macro feature

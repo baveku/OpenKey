@@ -17,6 +17,7 @@ typedef void (^CheckNewVersionCallback)(void);
 +(BOOL)isInited;
 +(BOOL)initEventTap;
 +(BOOL)stopEventTap;
++(void)releaseEventTap;
 
 +(NSArray*)getTableCodes;
 
@@ -32,6 +33,7 @@ typedef void (^CheckNewVersionCallback)(void);
 extern "C" {
 #endif
 void ReenableEventTap(void);
+void NoteEventTapDisabledByUser(void);
 #ifdef __cplusplus
 }
 #endif
