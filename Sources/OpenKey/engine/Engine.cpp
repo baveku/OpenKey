@@ -2731,13 +2731,18 @@ void vKeyHandleEvent(const vKeyEvent& event,
             }
             // e does not follow ơ, ă, ô, ư, â (tower, awesome, choose).
             // Plain o + e stays oe (khoẻ), and e after ê cancels circumflex (seeen -> seen).
-            // Also if initial đ was formed by a delayed d (dude, diadem, dodge, dodrans), only tone/w/d (or o after du for được) can follow.
+            // Also if initial đ was formed by a delayed d (dude, diadem, dodrans),
+            // restore if an invalid vowel sequence follows:
+            // - e after u (dude)
+            // - e after a (diadem)
+            // - a vowel after a vowel that already has a tone mark (dodrans)
             if (!shouldRestore && _index >= 1 && CHR(0) == KEY_D && (TypingWord[0] & TONE_MASK) &&
                 (_stateIndex < 2 || (KeyStates[1] & CHAR_MASK) != KEY_D)) {
-                bool isDuoc = _index >= 2 && CHR(1) == KEY_U && (_index == 2 ? data == KEY_O : CHR(2) == KEY_O);
-                bool okAfterDelayedD = data == KEY_S || data == KEY_F || data == KEY_R || data == KEY_X ||
-                    data == KEY_J || (data == KEY_Z && hasAnyMark) || canWMod || data == KEY_D || isDuoc;
-                if (!okAfterDelayedD)
+                if (data == KEY_E && CHR(_index - 1) == KEY_U)
+                    shouldRestore = true;
+                if (data == KEY_E && CHR(_index - 1) == KEY_A)
+                    shouldRestore = true;
+                if (!IS_CONSONANT(data) && (TypingWord[_index - 1] & MARK_MASK))
                     shouldRestore = true;
             }
             if (!shouldRestore && data == KEY_E && _index >= 1
