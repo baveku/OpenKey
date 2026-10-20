@@ -56,6 +56,16 @@ Uint16 charToMacKeyCode(char c) {
         case 'x': return KEY_X;
         case 'y': return KEY_Y;
         case 'z': return KEY_Z;
+        case '1': return KEY_1;
+        case '2': return KEY_2;
+        case '3': return KEY_3;
+        case '4': return KEY_4;
+        case '5': return KEY_5;
+        case '6': return KEY_6;
+        case '7': return KEY_7;
+        case '8': return KEY_8;
+        case '9': return KEY_9;
+        case '0': return KEY_0;
         case ' ': return KEY_SPACE;
         case '[': return KEY_LEFT_BRACKET;
         case ']': return KEY_RIGHT_BRACKET;
@@ -63,6 +73,7 @@ Uint16 charToMacKeyCode(char c) {
         case ',': return KEY_COMMA;
         case '/':
         case '?': return KEY_SLASH;
+        case '\b': return KEY_DELETE;
         default: return KEY_EMPTY;
     }
 }
@@ -104,8 +115,12 @@ std::string typeString(const std::string& input) {
         vKeyHandleEvent(vKeyEvent::Keyboard, vKeyEventState::KeyDown, keyCode, capsStatus, false);
 
         if (pData->code == vDoNothing) {
-            // Raw character is passed through
-            buffer.push_back((Uint16)ch);
+            if (keyCode == KEY_DELETE) {
+                if (!buffer.empty()) buffer.pop_back();
+            } else {
+                // Raw character is passed through
+                buffer.push_back((Uint16)ch);
+            }
         } else if (pData->code == vWillProcess || pData->code == vRestore || pData->code == vRestoreAndStartNewSession) {
             // Delete backspaceCount characters from buffer
             for (int b = 0; b < pData->backspaceCount && !buffer.empty(); b++) {
@@ -126,6 +141,21 @@ std::string typeString(const std::string& input) {
             if (pData->code == vRestore || pData->code == vRestoreAndStartNewSession) {
                 buffer.push_back((Uint16)ch);
             }
+        } else if (pData->code == vReplaceMaro) {
+            for (int b = 0; b < pData->backspaceCount && !buffer.empty(); b++) {
+                buffer.pop_back();
+            }
+            for (size_t n = 0; n < pData->macroData.size(); n++) {
+                Uint32 cd = pData->macroData[n];
+                if (cd & PURE_CHARACTER_MASK) {
+                    buffer.push_back((Uint16)(cd & 0xFFFF));
+                } else if (!(cd & CHAR_CODE_MASK)) {
+                    buffer.push_back(keyCodeToCharacter(cd));
+                } else {
+                    buffer.push_back((Uint16)(cd & 0xFFFF));
+                }
+            }
+            buffer.push_back((Uint16)ch);
         }
     }
     return u16stringToUtf8(buffer);
@@ -504,7 +534,7 @@ int main() {
         {"thuajat", "thuật"},
         {"thuaatj", "thuật"},
         {"thuatja", "thuật"},
-        {"nhajat", "nhật"},
+        {"nhaatj", "nhật"},
         {"xuajat", "xuật"},
         {"luajat", "luật"},
         {"quajat", "quật"},
@@ -513,11 +543,21 @@ int main() {
         {"viejet", "việt"},
         {"vieest", "viết"},
         {"vietej", "việt"},
+        {"tapa", "tapa"},
+        {"taapj", "t\u1eadp"},
+        {"maapj", "m\u1eadp"},
+        {"caapj", "c\u1eadp"},
+        {"data", "data"},
+        {"tapas", "tapas"},
+        {"papa", "papa"},
+        {"papas", "papas"},
+        {"photo", "photo"},
+        {"coco", "coco"},
         {"vietes", "viết"},
         {"bietej", "biệt"},
-        {"bojo", "b\u1ed9"},
-        {"bofo", "b\u1ed3"},
-        {"bojot", "b\u1ed9t"},
+        {"booj", "b\u1ed9"},
+        {"boof", "b\u1ed3"},
+        {"boojt", "b\u1ed9t"},
         {"piece", "piece"},
         {"pieces", "pieces"},
         {"thuataj", "thuật"},
@@ -572,6 +612,17 @@ int main() {
         {"wwork", "work"},
         {"wwarning", "warning"},
         {"warning", "warning"},
+        {"what", "what"},
+        {"where", "where"},
+        {"who", "who"},
+        {"why", "why"},
+        {"when", "when"},
+        {"which", "which"},
+        {"while", "while"},
+        {"white", "white"},
+        {"toansz", "toan"},
+        {"ddosz", "\u0111o"},
+        {"vieetjz", "vi\u00eat"},
         {"dods", "đó"},
         {"dudowjc", "được"},
         {"dduowjc", "được"},
@@ -673,42 +724,7 @@ int main() {
         {"khuyur", "khuỷu"},
         {"khuyru", "khuỷu"},
 
-        // Delayed circumflex after coda (ng, nh, ch, t, p, c, m, n)
-        {"vanga", "vâng"},
-        {"vangsa", "vấng"},
-        {"cangsa", "cấng"},
-        {"tangsa", "tấng"},
-        {"kenhe", "kênh"},
-        {"benhe", "bênh"},
-        {"lenhe", "lênh"},
-        {"tenhe", "tênh"},
-        {"lenhse", "lếnh"},
-        {"benhje", "bệnh"},
-        {"leche", "lêch"},
-        {"lechse", "lếch"},
-        {"lechje", "lệch"},
-        {"xongo", "xông"},
-        {"congo", "công"},
-        {"dongo", "dông"},
-        {"kongo", "kông"},
-        {"tongso", "tống"},
-        {"congjo", "cộng"},
-        {"dongfo", "dồng"},
-        {"mojto", "một"},
-        {"hojpo", "hộp"},
-        {"lojco", "lộc"},
-        {"bojto", "bột"},
-        {"tosto", "tốt"},
-        {"totso", "tốt"},
-        {"tonso", "tốn"},
-        {"teste", "tết"},
-        {"tetse", "tết"},
-        {"tespe", "tếp"},
-        {"tepse", "tếp"},
-        {"tesce", "tếc"},
-        {"tecse", "tếc"},
-        {"tesme", "tếm"},
-        {"temse", "tếm"},
+        // Diphthong delayed circumflex vs single-vowel English preservation (Pillar 1)
         {"tiemes", "tiếm"},
         {"nghiemej", "nghiệm"},
         {"tieces", "tiếc"},
@@ -717,6 +733,31 @@ int main() {
         {"sense", "sense"},
         {"dense", "dense"},
         {"tense", "tense"},
+        {"theme", "theme"},
+        {"themes", "themes"},
+        {"meme", "meme"},
+        {"scene", "scene"},
+        {"bene", "bên"},
+        {"mono", "mono"},
+        {"mongo", "mongo"},
+        {"bongo", "bongo"},
+        {"congo", "công"},
+        {"manga", "manga"},
+        {"mana", "mana"},
+        {"banana", "banana"},
+        {"canada", "canada"},
+        {"teste", "tết"},
+        {"tester", "tester"},
+        {"bastard", "bastard"},
+        {"aspartic", "aspartic"},
+        {"afar", "afar"},
+        {"ajar", "ajar"},
+        {"arachnid", "arachnid"},
+        {"bosom", "bosom"},
+        {"boron", "boron"},
+        {"busy", "busy"},
+        {"biform", "biform"},
+        {"life", "life"},
 
         // Delayed d stroke vs English dude
         {"dangd", "đang"},
@@ -727,7 +768,14 @@ int main() {
         {"dinhjd", "định"},
         {"dude", "dude"},
 
-        // Double tone keys in English words (ss, rr, ff)
+        // Repeated tone keys: cancel mark on 2nd press (keeping ư/ơ/ă/â/ê/ô intact),
+        // restore both letters when followed by a vowel (message, current, coffee),
+        // and drop consumed tone key when followed by a consonant (ARrgon -> Argon, Currsor -> Cursor).
+        {"ARrgon", "Argon"},
+        {"Currsor", "Cursor"},
+        {"currrent", "current"},
+        {"tuwss", "tưs"},
+        {"tawngss", "tăngs"},
         {"message", "message"},
         {"session", "session"},
         {"lesson", "lesson"},
@@ -820,7 +868,669 @@ int main() {
         {"giaf", "già"},
         {"gias", "giá"},
         {"gieengs", "giếng"},
-        {"giengse", "giếng"}
+        {"giengse", "giếng"},
+
+        // S-glide / silent-e English words vs Vietnamese
+        {"these", "these"},
+        {"lose", "lose"},
+        {"chose", "chose"},
+        {"those", "those"},
+        {"use", "use"},
+        {"user", "user"},
+        {"case", "case"},
+        {"base", "base"},
+        {"chase", "chase"},
+        {"phase", "phase"},
+        {"house", "house"},
+        {"mouse", "mouse"},
+        {"cause", "cause"},
+        {"noise", "noise"},
+        {"arise", "arise"},
+        {"wise", "wise"},
+        {"design", "design"},
+        {"desire", "desire"},
+        {"result", "result"},
+        {"resume", "resume"},
+        {"visit", "visit"},
+        {"vision", "vision"},
+        {"decision", "decision"},
+        {"prison", "prison"},
+
+        // Standalone w- initial English words vs Vietnamese ư/ưa/ưng
+        {"wrong", "wrong"},
+        {"worm", "worm"},
+        {"won", "won"},
+        {"wizard", "wizard"},
+        {"wrap", "wrap"},
+        {"way", "way"},
+        {"wait", "wait"},
+        {"want", "want"},
+        {"warm", "warm"},
+        {"warn", "warn"},
+        {"win", "win"},
+        {"wing", "wing"},
+        {"wife", "wife"},
+        {"we", "we"},
+        {"web", "web"},
+        {"well", "well"},
+        {"w", "ư"},
+        {"ws", "ứ"},
+        {"wf", "ừ"},
+        {"wr", "ử"},
+        {"wx", "ữ"},
+        {"wj", "ự"},
+        {"wa", "ưa"},
+        {"was", "ứa"},
+        {"waf", "ừa"},
+        {"war", "ửa"},
+        {"wax", "ữa"},
+        {"waj", "ựa"},
+        {"wng", "ưng"},
+        {"wngs", "ứng"},
+
+        // Multi-vowel + coda & closed diphthong English words
+        {"virus", "virus"},
+        {"very", "very"},
+        {"query", "query"},
+        {"series", "series"},
+        {"merit", "merit"},
+        {"serif", "serif"},
+        {"diary", "diary"},
+        {"dairy", "dairy"},
+        {"hairy", "hairy"},
+        {"theory", "theory"},
+        {"memory", "memory"},
+        {"history", "history"},
+        {"victory", "victory"},
+        {"factory", "factory"},
+        {"forum", "forum"},
+        {"chorus", "chorus"},
+        {"basic", "basic"},
+        {"music", "music"},
+        {"using", "using"},
+        {"basin", "basin"},
+        {"raisin", "raisin"},
+        {"various", "various"},
+        {"curious", "curious"},
+        {"furious", "furious"},
+        {"marine", "marine"},
+        {"trains", "trains"},
+        {"mains", "mains"},
+        {"aims", "aims"},
+        {"fault", "fault"},
+        {"coins", "coins"},
+        {"joins", "joins"},
+        {"points", "points"},
+        {"suits", "suits"},
+        {"fruits", "fruits"},
+        {"ruins", "ruins"},
+        {"soup", "soup"},
+        {"soups", "soups"},
+        {"group", "group"},
+        {"groups", "groups"},
+        {"our", "our"},
+        {"your", "your"},
+        {"hour", "hour"},
+        {"tour", "tour"},
+        {"four", "four"},
+        {"course", "course"},
+        {"source", "source"},
+
+        // Backspace & space-boundary state synchronization
+        {"ta x\b\b\baxi", "taxi"},
+        {"ta x\b\bs", "tá"},
+        {"tooi\b\bext", "text"},
+        {"thichs\b\bch", "thích"},
+        {"tas\baxi", "taxi"},
+        {"tass\bxi", "taxi"},
+        {"Toi da\b\bddang code theme", "Toi đang code theme"},
+        {"them \b\bme", "theme"},
+
+        // Pillar 2: Unified Telex Cancel (non-adjacent mark/tone/stroke cancel across consonants & trailing space)
+        {"busns", "buns"},
+        {"busns ", "buns "},
+        {"bufnf", "bunf"},
+        {"barnr", "banr"},
+        {"buxnx", "bunx"},
+        {"bajnj", "banj"},
+        {"thischs", "thichs"},
+        {"tasns", "tans"},
+        {"theeme", "theme"},
+        {"theeme ", "theme "},
+        {"toono", "tono"},
+        {"taana", "tana"},
+        {"ddand", "dand"},
+        {"ddand ", "dand "},
+        {"tuwnw", "tunw"},
+        {"tuwnw ", "tunw "},
+        {"tuwss ", "tưs "},
+        {"tawngss ", "tăngs "},
+        {"theemss", "thêms"},
+        {"theemss ", "thêms "},
+        {"deeper", "deeper"},
+        {"keeper", "keeper"},
+        {"window", "window"},
+        {"owner", "owner"},
+
+        // Triple-vowel Telex escape (ooo -> oo, eee -> ee, aaa -> aa)
+        {"coool", "cool"},
+        {"coool ", "cool "},
+        {"toool", "tool"},
+        {"toool ", "tool "},
+        {"goood", "good"},
+        {"boook", "book"},
+        {"rooom", "room"},
+        {"rooom ", "room "},
+        {"mooon", "moon"},
+        {"sooon", "soon"},
+        {"looop", "loop"},
+        {"seeen", "seen"},
+        {"deeep", "deep"},
+        {"keeep", "keep"},
+        {"meeet", "meet"},
+
+        {"poor ", "poor "},
+        {"seeing", "seeing"},
+        {"booing", "booing"},
+
+        // Toneless Vietnamese syllables with stop codas (p, t, c) preserved on Space
+        {"thaat", "thât"},
+        {"thaat ", "thât "},
+        {"thata", "thât"},
+        {"thata ", "thât "},
+        {"thatas", "thất"},
+        {"thataj", "thật"},
+        {"thatsa", "thất"},
+        {"thatja", "thật"},
+        {"ddep ", "đep "},
+        {"duowc ", "dươc "},
+        {"nuowc ", "nươc "},
+        {"truowc ", "trươc "},
+        {"toot ", "tôt "},
+        {"moot ", "môt "},
+        {"teet ", "têt "},
+
+        // Delayed circumflex across all valid Vietnamese codas (including toneless)
+        {"nhata", "nhât"},
+        {"bata", "bât"},
+        {"tata", "tât"},
+        {"mata", "mât"},
+        {"lata", "lât"},
+        {"capa", "câp"},
+        {"mapa", "mâp"},
+        {"viete", "viêt"},
+        {"thuata", "thuât"},
+        {"tete", "têt"},
+        {"tepe", "têp"},
+        {"toto", "tôt"},
+        {"boto", "bôt"},
+        {"moto", "môt"},
+        {"hopo", "hôp"},
+        {"nene", "nên"},
+        {"nene ", "nên "},
+        {"lene", "lên"},
+        {"bene", "bên"},
+        {"tene", "tên"},
+        {"mene", "mên"},
+        {"dene", "dên"},
+        {"hene", "hên"},
+        {"kene", "kên"},
+        {"quene", "quên"},
+        {"nense", "nến"},
+        {"nenfe", "nền"},
+        {"kenhe", "kênh"},
+        {"benhe", "bênh"},
+        {"lenhe", "lênh"},
+        {"tenhe", "tênh"},
+        {"lenhse", "lếnh"},
+        {"benhje", "bệnh"},
+        {"leche", "lêch"},
+        {"lechse", "lếch"},
+        {"lechje", "lệch"},
+        {"xongo", "xông"},
+        {"congo", "công"},
+        {"dongo", "dông"},
+        {"kongo", "kông"},
+        {"tongso", "tống"},
+        {"congjo", "cộng"},
+        {"dongfo", "dồng"},
+        {"vanga", "vâng"},
+        {"vangsa", "vấng"},
+        {"cangsa", "cấng"},
+        {"tangsa", "tấng"},
+        {"tonso", "tốn"},
+        {"tansa", "tấn"},
+        {"tesme", "tếm"},
+        {"temse", "tếm"},
+        {"mojto", "một"},
+        {"mootj", "một"},
+        {"motjo", "một"},
+        {"hojpo", "hộp"},
+        {"lojco", "lộc"},
+        {"bojto", "bột"},
+        {"tosto", "tốt"},
+        {"totso", "tốt"},
+        {"teste", "tết"},
+        {"tetse", "tết"},
+        {"tespe", "tếp"},
+        {"tepse", "tếp"},
+        {"tesce", "tếc"},
+        {"tecse", "tếc"},
+        {"tapaj", "tập"},
+        {"tapja", "tập"},
+        {"tajap", "tập"},
+        {"mapaj", "mập"},
+        {"capaj", "cập"},
+        {"dataj", "dật"},
+        {"cataj", "cật"},
+        {"nhajat", "nhật"},
+        {"bojo", "bộ"},
+        {"bofo", "bồ"},
+        {"bojot", "bột"},
+        {"thefe", "thề"},
+        {"leje", "lệ"},
+
+        // English words with E..E / O..O / A..A / st / sp preserved
+        {"theme", "theme"},
+        {"meme", "meme"},
+        {"gene", "gene"},
+        {"scene", "scene"},
+        {"sense", "sense"},
+        {"dense", "dense"},
+        {"tense", "tense"},
+        {"mono", "mono"},
+        {"mana", "mana"},
+        {"manga", "manga"},
+        {"banana", "banana"},
+        {"canada", "canada"},
+        {"data", "data"},
+        {"tapa", "tapa"},
+        {"tapas", "tapas"},
+        {"papa", "papa"},
+        {"papas", "papas"},
+        {"photo", "photo"},
+        {"coco", "coco"},
+        {"mojo", "mojo"},
+        {"bastard", "bastard"},
+        {"aspartic", "aspartic"},
+        {"tester", "tester"},
+
+        // Shorthand w (ư/ươ) + codas + tones
+        {"xwngs", "xứng"},
+        {"xwngs ", "xứng "},
+        {"xwng", "xưng"},
+        {"xwcs", "xức"},
+        {"xwts", "xứt"},
+        {"swcs", "sức"},
+        {"swts", "sứt"},
+        {"swng", "sưng"},
+        {"swngs", "sứng"},
+        {"swngf", "sừng"},
+        {"rwngf", "rừng"},
+        {"rwcj", "rực"},
+        {"rwts", "rứt"},
+        {"rwng", "rưng"},
+        {"twngs", "tứng"},
+        {"twngf", "từng"},
+        {"lwng", "lưng"},
+        {"nhwng", "nhưng"},
+        {"nhwngx", "những"},
+        {"chwcs", "chức"},
+        {"thwcs", "thức"},
+        {"thwcj", "thực"},
+        {"ddwngs", "đứng"},
+        {"ddwts", "đứt"},
+        {"ddwcj", "đực"},
+        {"mwcs", "mức"},
+        {"nwocs", "nước"},
+        {"trwocs", "trước"},
+        {"ddwocj", "được"},
+        {"xwong", "xương"},
+        {"xwongs", "xướng"},
+        {"xwongr", "xưởng"},
+        {"swong", "sương"},
+        {"thwongf", "thường"},
+        {"ngwoif", "người"},
+        {"mwoif", "mười"},
+        {"cwoif", "cười"},
+        {"mwonj", "mượn"},
+        {"lwotj", "lượt"},
+        {"vwotj", "vượt"},
+        {"rwouj", "rượu"},
+        {"ruwouj", "rượu"},
+        {"ruwouj ", "rượu "},
+        {"huwou", "hươu"},
+        {"huwou ", "hươu "},
+        {"buwous", "bướu"},
+        {"buwosu", "bướu"},
+
+        // Tone before w before coda
+        {"thaswng", "thắng"},
+        {"caswt", "cắt"},
+        {"baswt", "bắt"},
+        {"gajwp", "gặp"},
+        {"xuswng", "xứng"},
+        {"hoswp", "hớp"},
+
+        // Diphthongs/triphthongs with tone after first vowel
+        {"cura", "của"},
+        {"musa", "múa"},
+        {"mufa", "mùa"},
+        {"luja", "lụa"},
+        {"quar", "quả"},
+        {"quas", "quá"},
+        {"quaf", "quà"},
+        {"quaj", "quạ"},
+        {"hosa", "hóa"},
+        {"hofa", "hòa"},
+        {"hora", "hỏa"},
+        {"hoja", "họa"},
+        {"tosan", "toán"},
+        {"tofan", "toàn"},
+        {"lojai", "loại"},
+        {"ddojan", "đoạn"},
+        {"phisa", "phía"},
+        {"chifa", "chìa"},
+        {"bifa", "bìa"},
+        {"tira", "tỉa"},
+        {"nghixa", "nghĩa"},
+        {"ddija", "địa"},
+        {"baso", "báo"},
+        {"vafo", "vào"},
+        {"baro", "bảo"},
+        {"baxo", "bão"},
+        {"tajo", "tạo"},
+        {"keso", "kéo"},
+        {"mefo", "mèo"},
+        {"kero", "kẻo"},
+        {"kexo", "kẽo"},
+        {"kejo", "kẹo"},
+        {"ddefo", "đèo"},
+        {"giso", "gió"},
+        {"gifo", "giò"},
+        {"giro", "giỏ"},
+        {"gixo", "giõ"},
+        {"gijo", "giọ"},
+        {"thusy", "thúy"},
+        {"thury", "thủy"},
+        {"hury", "hủy"},
+        {"busy", "busy"},
+        {"bury", "bury"},
+        {"haxy", "hãy"},
+        {"daxy", "dãy"},
+        {"gaxy", "gãy"},
+        {"naxy", "nãy"},
+        {"maxi", "mãi"},
+        {"laxi", "lãi"},
+        {"caxi", "cãi"},
+        {"muxi", "mũi"},
+        {"loxio", "lỗi"},
+        {"moxio", "mỗi"},
+        {"maxua", "mẫu"},
+        {"pheeux", "phễu"},
+        {"pheexu", "phễu"},
+        {"peux", "peux"},
+        {"huwxu", "hữu"},
+        {"taxi", "taxi"},
+        {"maximum", "maximum"},
+        {"boxing", "boxing"},
+        {"tosio", "tối"},
+        {"toiso", "tối"},
+        {"casua", "cấu"},
+        {"causa", "cấu"},
+        {"cafua", "cầu"},
+        {"caufa", "cầu"},
+        {"keesu", "kếu"},
+        {"keuse", "kếu"},
+        {"thafya", "thầy"},
+        {"thasya", "thấy"},
+        {"vajya", "vậy"},
+        {"chieefu", "chiều"},
+        {"nhieefu", "nhiều"},
+        {"ddeefu", "đều"},
+        {"leefu", "lều"},
+        {"ddefe", "đề"},
+        {"ddeje", "đệ"},
+        {"swan", "swan"},
+        {"swamp", "swamp"},
+        {"swap", "swap"},
+        {"swarm", "swarm"},
+        {"sway", "sway"},
+        {"giant", "giant"},
+        {"diary", "diary"},
+        {"theory", "theory"},
+        {"video", "video"},
+
+        // Tone mark replacement (changing tone mid-word or at end of word)
+        {"xwngrs", "xứng"},
+        {"xwngrs ", "xứng "},
+        {"xwngsr", "xửng"},
+        {"xwngsf", "xừng"},
+        {"xwngsx", "xững"},
+        {"xwngsj", "xựng"},
+        {"xwrsng", "xứng"},
+        {"toansf", "toàn"},
+        {"toanfs", "toán"},
+        {"toansr", "toản"},
+        {"toansx", "toãn"},
+        {"toansj", "toạn"},
+        {"toanrs", "toán"},
+        {"vieetsj", "việt"},
+        {"vieetjs", "viết"},
+        {"vietesj", "việt"},
+        {"vietejs", "viết"},
+        {"vietsje", "việt"},
+        {"vietjse", "viết"},
+        {"thaatsj", "thật"},
+        {"thaatjs", "thất"},
+        {"thatasj", "thật"},
+        {"thatajs", "thất"},
+        {"thatsja", "thật"},
+        {"thatjsa", "thất"},
+        {"tasf", "tà"},
+        {"tafs", "tá"},
+        {"tasx", "tã"},
+        {"taxs", "tá"},
+        {"tasj", "tạ"},
+        {"tajs", "tá"},
+        {"xwrs", "xứ"},
+        {"xwsr", "xử"},
+        {"ddars", "đá"},
+        {"cars", "cars"},
+        {"bars", "bars"},
+        {"stars", "stars"},
+        {"wars", "wars"},
+        {"hers", "hers"},
+        {"ours", "ours"},
+        {"yours", "yours"},
+        {"hours", "hours"},
+        {"tours", "tours"},
+        {"doors", "doors"},
+        {"floors", "floors"},
+        {"beers", "beers"},
+        {"peers", "peers"},
+        {"cheers", "cheers"},
+        {"first", "first"},
+        {"thirst", "thirst"},
+        {"burst", "burst"},
+        {"worst", "worst"},
+        {"marsh", "marsh"},
+        {"harsh", "harsh"},
+        {"surf", "surf"},
+        {"turf", "turf"},
+        {"serf", "serf"},
+        {"surface", "surface"},
+        {"chefs", "chefs"},
+        {"roofs", "roofs"},
+        {"briefs", "briefs"},
+        {"afraid", "afraid"},
+        {"africa", "africa"},
+        {"israel", "israel"},
+        {"disrupt", "disrupt"},
+        {"transfer", "transfer"},
+        {"transform", "transform"},
+
+        // gi- onset syllables across vowel modifiers, glides, codas, and typing orders
+        {"giaay", "giây"},
+        {"giaays", "giấy"},
+        {"giaayf", "giầy"},
+        {"giaasy", "giấy"},
+        {"giaafy", "giầy"},
+        {"giaaus", "giấu"},
+        {"giaauf", "giầu"},
+        {"giaasu", "giấu"},
+        {"giaafu", "giầu"},
+        {"giaams", "giấm"},
+        {"giaasm", "giấm"},
+        {"giawm", "giăm"},
+        {"giaajn", "giận"},
+        {"giaanj", "giận"},
+        {"giaajt", "giật"},
+        {"giaatj", "giật"},
+        {"giawjt", "giặt"},
+        {"giawtj", "giặt"},
+        {"giawsc", "giắc"},
+        {"giawcs", "giắc"},
+        {"giawng", "giăng"},
+        {"giasn", "gián"},
+        {"giasp", "giáp"},
+        {"giasc", "giác"},
+        {"giusp", "giúp"},
+        {"giuwjt", "giựt"},
+        {"giuwng", "giưng"},
+
+        // iê/yê + huyền delayed circumflex before coda/glide, uê delayed circumflex, and gu- codas
+        {"tiefen", "tiền"},
+        {"chiefeu", "chiều"},
+        {"nhiefeu", "nhiều"},
+        {"yefen", "yền"},
+        {"yefeu", "yều"},
+        {"huene", "huên"},
+        {"tuenes", "tuến"},
+        {"khuenhe", "khuênh"},
+        {"khueches", "khuếch"},
+        {"dduee", "đuê"},
+        {"ddueenhf", "đuềnh"},
+        {"dduenhfe", "đuềnh"},
+        {"guoost", "guốt"},
+        {"guowst", "gướt"},
+        {"guyst", "guýt"},
+
+        // Delayed d stroke on valid Vietnamese rhymes and delayed w on ươu
+        {"diujd", "địu"},
+        {"dieetjd", "điệt"},
+        {"dieengsd", "điếng"},
+        {"doatjd", "đoạt"},
+        {"doaisd", "đoái"},
+        {"doaysd", "đoáy"},
+        {"duowtjd", "đượt"},
+        {"duootjd", "đuột"},
+        {"duowmsd", "đướm"},
+        {"duowpsd", "đướp"},
+        {"duyd", "đuy"},
+        {"duynd", "đuyn"},
+        {"duytsd", "đuýt"},
+        {"duyeetjd", "đuyệt"},
+        {"duyeend", "đuyên"},
+        {"dueed", "đuê"},
+        {"dueenhd", "đuênh"},
+        {"huouw", "hươu"},
+        {"buouws", "bướu"},
+        {"ruouwj", "rượu"},
+
+        // Open-syllable and diphthong tone changes
+        {"bafr", "bả"},
+        {"basr", "bả"},
+        {"barf", "bà"},
+        {"befs", "bé"},
+        {"bofs", "bó"},
+        {"beefs", "bế"},
+        {"boofs", "bố"},
+        {"beofs", "béo"},
+        {"baifr", "bải"},
+        {"bieeurs", "biếu"},
+        {"buooirs", "buối"},
+        {"baausr", "bẩu"},
+        {"baaurf", "bầu"},
+        {"baaurs", "bấu"},
+        {"mwofis", "mưới"},
+        {"gwris", "gứi"},
+        {"basif", "bài"},
+        {"bafis", "bái"},
+
+        // English words with ss/ff/rr + consonant, invalid codas, or cancelled non-adjacent keys
+        {"poor", "poor"},
+        {"poorly", "poorly"},
+        {"poorly ", "poorly "},
+        {"onshore", "onshore"},
+        {"onshore ", "onshore "},
+        {"cofactor", "cofactor"},
+        {"cofactor ", "cofactor "},
+        {"coracle", "coracle"},
+        {"coracle ", "coracle "},
+        {"tofu", "tofu"},
+        {"renew", "renew"},
+        {"beeswax", "beeswax"},
+        {"airway", "airway"},
+        {"upswing", "upswing"},
+        {"amassment", "amassment"},
+        {"recesslike", "recesslike"},
+        {"gonorrhea", "gonorrhea"},
+        {"diarrhea", "diarrhea"},
+        {"cirrhosis", "cirrhosis"},
+        {"hassle", "hassle"},
+        {"misspell", "misspell"},
+        {"misstep", "misstep"},
+        {"lossless", "lossless"},
+        {"chessboard", "chessboard"},
+        {"guesswork", "guesswork"},
+        {"baffle", "baffle"},
+        {"raffle", "raffle"},
+        {"waffle", "waffle"},
+        {"shuffle", "shuffle"},
+        {"offload", "offload"},
+        {"offshore", "offshore"},
+        {"offspring", "offspring"},
+        {"downward", "downward"},
+        {"waxwork", "waxwork"},
+        {"veneer", "veneer"},
+        {"keener", "keener"},
+        {"leeches", "leeches"},
+        {"daddy", "daddy"},
+        {"dodder", "dodder"},
+        {"dude", "dude"},
+        {"dudes", "dudes"},
+        {"diadem", "diadem"},
+        {"dodge", "dodge"},
+        {"dodrans", "dodrans"},
+        {"duopod", "duopod"},
+        {"basque", "basque"},
+        {"booze", "booze"},
+        {"amaze", "amaze"},
+        {"borzoi", "borzoi"},
+        {"yes", "yes"},
+        {"year", "year"},
+        {"tier", "tier"},
+        {"truer", "truer"},
+        {"buyer", "buyer"},
+        {"bowie", "bowie"},
+        {"coaxial", "coaxial"},
+        {"thorax", "thorax"},
+        {"borax", "borax"},
+        {"pharos", "pharos"},
+        {"rosary", "rosary"},
+        {"ghafir", "ghafir"},
+        {"khajur", "khajur"},
+        {"censer", "censer"},
+        {"temser", "temser"},
+        {"tonsor", "tonsor"},
+        {"khuatw", "khuăt"},
+        {"khuatw ", "khuăt "},
+        {"hoacw ", "hoăc "},
+        {"khueenh ", "khuênh "},
+        {"uuww", "uuw"},
+        {"oaww", "oaw"},
+        {"thuoww", "thuow"}
     };
 
     int passed = 0;
@@ -834,6 +1544,156 @@ int main() {
             std::cerr << "FAIL: input '" << tc.input << "' expected '" << tc.expected << "' but got '" << actual << "'" << std::endl;
         }
     }
+
+    // Verify VNI mode
+    {
+        vInputType = vVNI;
+        std::vector<TestCase> vniCases = {
+            {"them6", "thêm"},
+            {"hom6", "hôm"},
+            {"mon6", "môn"},
+            {"bong6", "bông"},
+            {"mong6", "mông"},
+            {"can6", "cân"},
+            {"ban6", "bân"},
+            {"man6", "mân"},
+            {"mam6", "mâm"},
+            {"tap65", "tập"},
+            {"cat65", "cật"},
+            {"dat65", "dật"},
+            {"coc61", "cốc"},
+            {"loc65", "lộc"},
+            {"TO6", "TÔ"},
+            {"to16", "tố"},
+            {"tie1n6", "tiến"},
+            {"in1", "ín"},
+            {"o2", "ò"},
+            {"o3", "ỏ"},
+            {"e3", "ẻ"},
+            {"e4", "ẽ"},
+            {"to4", "tõ"}
+        };
+        for (const auto& tc : vniCases) {
+            std::string actual = typeString(tc.input);
+            if (actual == tc.expected) {
+                passed++;
+            } else {
+                failed++;
+                std::cerr << "FAIL (VNI): input '" << tc.input << "' expected '" << tc.expected << "' but got '" << actual << "'" << std::endl;
+            }
+        }
+        vInputType = vTelex;
+    }
+
+    // Verify Simple Telex 1 & 2
+    {
+        vInputType = vSimpleTelex1;
+        for (const auto& tc : std::vector<TestCase>{
+            {"cool", "cool"},
+            {"veneer", "veneer"},
+            {"fast", "fast"},
+            {"soft", "soft"},
+            {"next", "next"}
+        }) {
+            std::string actual = typeString(tc.input);
+            if (actual == tc.expected) {
+                passed++;
+            } else {
+                failed++;
+                std::cerr << "FAIL (SimpleTelex1): input '" << tc.input << "' expected '" << tc.expected << "' but got '" << actual << "'" << std::endl;
+            }
+        }
+        vInputType = vSimpleTelex2;
+        for (const auto& tc : std::vector<TestCase>{
+            {"what", "what"},
+            {"where", "where"},
+            {"win", "win"},
+            {"cool", "cool"},
+            {"veneer", "veneer"}
+        }) {
+            std::string actual = typeString(tc.input);
+            if (actual == tc.expected) {
+                passed++;
+            } else {
+                failed++;
+                std::cerr << "FAIL (SimpleTelex2): input '" << tc.input << "' expected '" << tc.expected << "' but got '" << actual << "'" << std::endl;
+            }
+        }
+        vInputType = vTelex;
+    }
+
+    // Verify Macros with Vietnamese composition, cancellation, and English restoration
+    {
+        vUseMacro = 1;
+        addMacro("ư", "ừm");
+        addMacro("như", "như là");
+        addMacro("tập", "tập thể dục");
+        addMacro("tas", "test_tas");
+        addMacro("cool", "rất ngầu");
+        addMacro("veneer", "lớp gỗ");
+        for (const auto& tc : std::vector<TestCase>{
+            {"w ", "ừm "},
+            {"nhw ", "như là "},
+            {"tapaj ", "tập thể dục "},
+            {"tass ", "test_tas "},
+            {"cool ", "rất ngầu "},
+            {"veneer ", "lớp gỗ "}
+        }) {
+            std::string actual = typeString(tc.input);
+            if (actual == tc.expected) {
+                passed++;
+            } else {
+                failed++;
+                std::cerr << "FAIL (Macro): input '" << tc.input << "' expected '" << tc.expected << "' but got '" << actual << "'" << std::endl;
+            }
+        }
+        vUseMacro = 0;
+    }
+
+    // Pillar 3: Verify 0 synthetic backspaces on plain ASCII words (e.g. theme, number, handle, render, hello, follow, remember)
+    std::vector<std::string> zeroBackspaceWords = {
+        "theme", "themes", "number", "handle", "render", "hello", "follow", "remember", "meme", "mono", "mana", "manga", "data", "school"
+    };
+    for (const auto& word : zeroBackspaceWords) {
+        vKeyInit();
+        vKeyHookState* pData = (vKeyHookState*)vKeyInit();
+        int totalBackspaces = 0;
+        for (char ch : word) {
+            Uint16 keyCode = charToMacKeyCode(ch);
+            Uint8 capsStatus = (isupper(ch)) ? 1 : 0;
+            vKeyHandleEvent(vKeyEvent::Keyboard, vKeyEventState::KeyDown, keyCode, capsStatus, false);
+            if (pData->code != vDoNothing) {
+                totalBackspaces += pData->backspaceCount;
+            }
+        }
+        if (totalBackspaces == 0) {
+            passed++;
+        } else {
+            failed++;
+            std::cerr << "FAIL (ZeroFakeBackspace): input '" << word << "' emitted " << totalBackspaces << " backspaces (expected 0)" << std::endl;
+        }
+    }
+
+    // Pillar 4: Verify minimal backspace prefix on restore (cool, tool, book only backspace 1 char 'ô' on the final consonant)
+    {
+        for (const auto& word : std::vector<std::string>{"cool", "tool", "book"}) {
+            vKeyInit();
+            vKeyHookState* pData = (vKeyHookState*)vKeyInit();
+            for (char ch : word) {
+                Uint16 keyCode = charToMacKeyCode(ch);
+                Uint8 capsStatus = (isupper(ch)) ? 1 : 0;
+                vKeyHandleEvent(vKeyEvent::Keyboard, vKeyEventState::KeyDown, keyCode, capsStatus, false);
+            }
+            if (pData->code == vWillProcess && pData->backspaceCount == 1 && pData->newCharCount == 3) {
+                passed++;
+            } else {
+                failed++;
+                std::cerr << "FAIL (MinimalBackspacePrefix): '" << word << "' emitted backspaceCount="
+                          << (int)pData->backspaceCount << " newCharCount=" << (int)pData->newCharCount << std::endl;
+            }
+        }
+    }
+
     std::cout << "Results: " << passed << " passed, " << failed << " failed." << std::endl;
     return (failed == 0) ? 0 : 1;
 }

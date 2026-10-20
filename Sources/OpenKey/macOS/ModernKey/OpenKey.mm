@@ -390,6 +390,8 @@ extern "C" {
     void SendPureCharacter(const Uint16& ch) {
         _newEventDown = CGEventCreateKeyboardEvent(myEventSource, 0, true);
         _newEventUp = CGEventCreateKeyboardEvent(myEventSource, 0, false);
+        CGEventSetTimestamp(_newEventDown, mach_absolute_time());
+        CGEventSetTimestamp(_newEventUp, mach_absolute_time());
         CGEventKeyboardSetUnicodeString(_newEventDown, 1, &ch);
         CGEventKeyboardSetUnicodeString(_newEventUp, 1, &ch);
         PostOwnedTapEvent(_newEventDown);
@@ -409,8 +411,10 @@ extern "C" {
             
             _newEventDown = CGEventCreateKeyboardEvent(myEventSource, _newChar, true);
             _newEventUp = CGEventCreateKeyboardEvent(myEventSource, _newChar, false);
+            CGEventSetTimestamp(_newEventDown, mach_absolute_time());
+            CGEventSetTimestamp(_newEventUp, mach_absolute_time());
             _privateFlag = CGEventGetFlags(_newEventDown);
-            _privateFlag &= ~(kCGEventFlagMaskCommand | kCGEventFlagMaskControl | kCGEventFlagMaskAlternate);
+            _privateFlag &= ~(kCGEventFlagMaskCommand | kCGEventFlagMaskControl | kCGEventFlagMaskAlternate | kCGEventFlagMaskAlphaShift);
             
             if (data & CAPS_MASK) {
                 _privateFlag |= kCGEventFlagMaskShift;
@@ -427,6 +431,8 @@ extern "C" {
             if (vCodeTable == 0) { //unicode 2 bytes code
                 _newEventDown = CGEventCreateKeyboardEvent(myEventSource, 0, true);
                 _newEventUp = CGEventCreateKeyboardEvent(myEventSource, 0, false);
+                CGEventSetTimestamp(_newEventDown, mach_absolute_time());
+                CGEventSetTimestamp(_newEventUp, mach_absolute_time());
                 CGEventKeyboardSetUnicodeString(_newEventDown, 1, &_newChar);
                 CGEventKeyboardSetUnicodeString(_newEventUp, 1, &_newChar);
                 PostOwnedTapEvent(_newEventDown);
@@ -437,6 +443,8 @@ extern "C" {
                 
                 _newEventDown = CGEventCreateKeyboardEvent(myEventSource, 0, true);
                 _newEventUp = CGEventCreateKeyboardEvent(myEventSource, 0, false);
+                CGEventSetTimestamp(_newEventDown, mach_absolute_time());
+                CGEventSetTimestamp(_newEventUp, mach_absolute_time());
                 CGEventKeyboardSetUnicodeString(_newEventDown, 1, &_newChar);
                 CGEventKeyboardSetUnicodeString(_newEventUp, 1, &_newChar);
                 PostOwnedTapEvent(_newEventDown);
@@ -448,6 +456,8 @@ extern "C" {
                     CFRelease(_newEventUp);
                     _newEventDown = CGEventCreateKeyboardEvent(myEventSource, 0, true);
                     _newEventUp = CGEventCreateKeyboardEvent(myEventSource, 0, false);
+                    CGEventSetTimestamp(_newEventDown, mach_absolute_time());
+                    CGEventSetTimestamp(_newEventUp, mach_absolute_time());
                     CGEventKeyboardSetUnicodeString(_newEventDown, 1, &_newCharHi);
                     CGEventKeyboardSetUnicodeString(_newEventUp, 1, &_newCharHi);
                     PostOwnedTapEvent(_newEventDown);
@@ -464,6 +474,8 @@ extern "C" {
                 InsertKeyLength(_newCharHi > 0 ? 2 : 1);
                 _newEventDown = CGEventCreateKeyboardEvent(myEventSource, 0, true);
                 _newEventUp = CGEventCreateKeyboardEvent(myEventSource, 0, false);
+                CGEventSetTimestamp(_newEventDown, mach_absolute_time());
+                CGEventSetTimestamp(_newEventUp, mach_absolute_time());
                 CGEventKeyboardSetUnicodeString(_newEventDown, (_newCharHi > 0 ? 2 : 1), _uniChar);
                 CGEventKeyboardSetUnicodeString(_newEventUp, (_newCharHi > 0 ? 2 : 1), _uniChar);
                 PostOwnedTapEvent(_newEventDown);
@@ -919,7 +931,7 @@ extern "C" {
                 
                 //fix autocomplete
                 if (shouldUseRecommendWorkaround(FRONT_APP) && pData->extCode != 4) {
-                    if (vFixChromiumBrowser && [_unicodeCompoundApp containsObject:FRONT_APP]) {
+                    if (vFixChromiumBrowser && containUnicodeCompoundApp(FRONT_APP)) {
                         if (pData->backspaceCount > 0) {
                             SendShiftAndLeftArrow();
                             if (pData->backspaceCount == 1)
