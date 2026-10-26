@@ -686,9 +686,8 @@ bool canDelayedCircumflex(int targetVowelIdx, Uint16 v) {
             (CHR(0) == KEY_C || CHR(0) == KEY_L))
             return false;
     } else if (v == KEY_A) {
-        // data, cata (catalog/category)
-        if (codaLen == 1 && c0 == KEY_T && targetVowelIdx == 1 &&
-            (isPlainInitialD || CHR(0) == KEY_C))
+        // data
+        if (codaLen == 1 && c0 == KEY_T && targetVowelIdx == 1 && isPlainInitialD)
             return false;
         // papa, tapa (tapas)
         if (codaLen == 1 && c0 == KEY_P && targetVowelIdx == 1 &&
@@ -697,9 +696,9 @@ bool canDelayedCircumflex(int targetVowelIdx, Uint16 v) {
         // mama
         if (codaLen == 1 && c0 == KEY_M && targetVowelIdx == 1 && CHR(0) == KEY_M)
             return false;
-        // mana, nana, banana, canada
+        // mana, nana
         if (codaLen == 1 && c0 == KEY_N && targetVowelIdx == 1 &&
-            (CHR(0) == KEY_M || CHR(0) == KEY_N || CHR(0) == KEY_B || CHR(0) == KEY_C))
+            (CHR(0) == KEY_M || CHR(0) == KEY_N))
             return false;
         // manga
         if (codaLen == 2 && c0 == KEY_N && c1 == KEY_G && targetVowelIdx == 1 && CHR(0) == KEY_M)
@@ -1189,6 +1188,9 @@ void insertMark(const Uint32& markMask, const bool& canModifyFlag) {
         TypingWord[VWSM] &= ~MARK_MASK;
         if (canModifyFlag)
             hCode = vRestore;
+        if (VSI == 0 && (TypingWord[0] & STANDALONE_MASK) && _stateIndex >= 1 && (KeyStates[0] & CHAR_MASK) == KEY_W) {
+            TypingWord[0] = KeyStates[0];
+        }
         for (ii = VSI; ii < _index; ii++) {
             TypingWord[ii] &= ~MARK_MASK;
             hData[kk--] = GET(TypingWord[ii]);
@@ -1526,25 +1528,66 @@ bool canKeyWModify() {
     return vowelCount == 1;
 }
 
-// tapaj -> tập, dataj -> dật, cataj -> cật.
-// For tapa/data/cata, the second 'a' stays plain (preserving English tapa/tapas/data/catalog)
-// unless followed by nặng (j). All other Vietnamese words (thata -> thât, viete -> viêt, thuata -> thuât)
-// convert immediately on the second vowel.
+// Deferred circumflex for English-shaped Onset + V + Coda + V words
+// (data, tapa, papa, mama, mana, nana, manga, theme, meme, reme, homo, mono, mongo, bongo, photo, coco, loco):
+// the second vowel stays plain unless followed by a valid Vietnamese tone key (e.g. manaf -> mần, tapaj -> tập, dataj -> dật).
 bool deferredCircumflex(bool extraTyped, Uint16 vowel, int& vowelAt) {
     vowelAt = -1;
-    if (vInputType == vVNI || vowel != KEY_A)
+    if (vInputType == vVNI || (vowel != KEY_A && vowel != KEY_E && vowel != KEY_O))
         return false;
     int end = extraTyped ? _index - 1 : _index;
-    if (end != 3)
-        return false;
-    if (CHR(1) != KEY_A || (TypingWord[1] & (TONE_MASK | TONEW_MASK | MARK_MASK)))
+    if (end != 3 && end != 4)
         return false;
     Uint16 c0 = CHR(0);
-    Uint16 coda = CHR(2);
     bool isPlainD = (c0 == KEY_D && !(TypingWord[0] & TONE_MASK));
-    if ((c0 == KEY_T && coda == KEY_P) || ((isPlainD || c0 == KEY_C) && coda == KEY_T)) {
-        vowelAt = 1;
-        return true;
+    if (end == 3) {
+        if (CHR(1) != vowel || (TypingWord[1] & (TONE_MASK | TONEW_MASK | MARK_MASK)))
+            return false;
+        Uint16 coda = CHR(2);
+        if (vowel == KEY_A) {
+            if ((isPlainD && coda == KEY_T) ||
+                ((c0 == KEY_T || c0 == KEY_P) && coda == KEY_P) ||
+                (c0 == KEY_M && coda == KEY_M) ||
+                ((c0 == KEY_M || c0 == KEY_N) && coda == KEY_N)) {
+                vowelAt = 1;
+                return true;
+            }
+        } else if (vowel == KEY_E) {
+            if ((c0 == KEY_M || c0 == KEY_R) && coda == KEY_M) {
+                vowelAt = 1;
+                return true;
+            }
+        } else if (vowel == KEY_O) {
+            if ((c0 == KEY_H && coda == KEY_M) ||
+                (c0 == KEY_M && coda == KEY_N) ||
+                ((c0 == KEY_C || c0 == KEY_L) && coda == KEY_C)) {
+                vowelAt = 1;
+                return true;
+            }
+        }
+    } else if (end == 4) {
+        if (vowel == KEY_A && CHR(1) == KEY_A && !(TypingWord[1] & (TONE_MASK | TONEW_MASK | MARK_MASK)) &&
+            c0 == KEY_M && CHR(2) == KEY_N && CHR(3) == KEY_G) {
+            vowelAt = 1;
+            return true;
+        }
+        if (vowel == KEY_E && CHR(2) == KEY_E && !(TypingWord[2] & (TONE_MASK | TONEW_MASK | MARK_MASK)) &&
+            c0 == KEY_T && CHR(1) == KEY_H && CHR(3) == KEY_M) {
+            vowelAt = 2;
+            return true;
+        }
+        if (vowel == KEY_O) {
+            if (CHR(1) == KEY_O && !(TypingWord[1] & (TONE_MASK | TONEW_MASK | MARK_MASK)) &&
+                (c0 == KEY_M || c0 == KEY_B) && CHR(2) == KEY_N && CHR(3) == KEY_G) {
+                vowelAt = 1;
+                return true;
+            }
+            if (CHR(2) == KEY_O && !(TypingWord[2] & (TONE_MASK | TONEW_MASK | MARK_MASK)) &&
+                c0 == KEY_P && CHR(1) == KEY_H && CHR(3) == KEY_T) {
+                vowelAt = 2;
+                return true;
+            }
+        }
     }
     return false;
 }
@@ -1621,15 +1664,11 @@ void handleMainKey(const Uint16& data, const bool& isCaps) {
         if (_index > 0 && deferredCircumflex(true, CHR(_index - 1), vowelAt)) {
             Uint16 coda = CHR(_index - 2);
             Uint16 last = CHR(_index - 1);
-            bool hasMedial = (vowelAt >= 1) && !IS_CONSONANT(CHR(vowelAt - 1))
-                && !(vowelAt - 1 == 1 && CHR(0) == KEY_Q && CHR(1) == KEY_U);
-            // pieces, nieces: s after ie + c is the English plural.
-            // tapas, papas: s after single a + p/t/c is the English plural.
-            // f/r/x cannot sit on p/t/c.
-            bool pieces = data == KEY_S && coda == KEY_C && last == KEY_E && (CHR(0) == KEY_P || CHR(0) == KEY_N);
-            bool legalTone = coda == KEY_M
-                ? (data == KEY_S || data == KEY_F || data == KEY_R || data == KEY_X || data == KEY_J)
-                : (data == KEY_J || (data == KEY_S && hasMedial && !pieces));
+            bool isNasal = (coda == KEY_M || coda == KEY_N || coda == KEY_G);
+            bool isThemeOrMemePlural = (data == KEY_S && last == KEY_E && coda == KEY_M);
+            bool legalTone = isNasal
+                ? ((data == KEY_S || data == KEY_F || data == KEY_R || data == KEY_X || data == KEY_J) && !isThemeOrMemePlural)
+                : (data == KEY_J);
             if (!legalTone) {
                 insertKey(data, isCaps);
                 return;
@@ -1695,6 +1734,10 @@ void handleMainKey(const Uint16& data, const bool& isCaps) {
     }
     
     int deferredAt = -1;
+    if (_index >= 4 && deferredCircumflex(true, CHR(_index - 1), deferredAt)) {
+        insertKey(data, isCaps);
+        return;
+    }
     if (deferredCircumflex(false, data, deferredAt)) {
         // Keep the letter. The tone key, if it comes, adds the circumflex.
         insertKey(data, isCaps, false);
@@ -2206,49 +2249,40 @@ void vKeyHandleEvent(const vKeyEvent& event,
         bool hasPlainD = data == KEY_D && _index >= 1 && CHR(0) == KEY_D && !(TypingWord[0] & TONE_MASK);
         if (vInputType != vVNI && tempDisableKey && _restoredOnPrevKey) {
             _restoredOnPrevKey = false;
-            Uint16 prevTone = (_stateIndex >= 2) ? (KeyStates[_stateIndex - 2] & CHAR_MASK) : 0;
-            bool wasAdjacentRepeat = _stateIndex >= 3 && (KeyStates[_stateIndex - 3] & CHAR_MASK) == prevTone;
-            bool dropDuplicateTone = wasAdjacentRepeat &&
-                (prevTone == KEY_R && IS_CONSONANT(data) && data != KEY_H);
-            if (!dropDuplicateTone) {
-                int commonPrefix = 0;
-                int maxPrefix = (_index < _stateIndex) ? _index : _stateIndex;
-                while (commonPrefix < maxPrefix &&
-                       TypingWord[commonPrefix] == KeyStates[commonPrefix] &&
-                       !(TypingWord[commonPrefix] & (TONE_MASK | TONEW_MASK | MARK_MASK | STANDALONE_MASK))) {
-                    commonPrefix++;
-                }
-                hCode = vWillProcess;
-                hBPC = _index - commonPrefix;
-                hNCC = _stateIndex - commonPrefix;
-                for (i = 0; i < _stateIndex; i++) {
-                    TypingWord[i] = KeyStates[i];
+            int commonPrefix = 0;
+            int maxPrefix = (_index < _stateIndex) ? _index : _stateIndex;
+            while (commonPrefix < maxPrefix &&
+                   TypingWord[commonPrefix] == KeyStates[commonPrefix] &&
+                   !(TypingWord[commonPrefix] & (TONE_MASK | TONEW_MASK | MARK_MASK | STANDALONE_MASK))) {
+                commonPrefix++;
+            }
+            hCode = vWillProcess;
+            hBPC = _index - commonPrefix;
+            hNCC = _stateIndex - commonPrefix;
+            for (i = 0; i < _stateIndex; i++) {
+                TypingWord[i] = KeyStates[i];
+            }
+            for (i = commonPrefix; i < _stateIndex; i++) {
+                hData[_stateIndex - 1 - i] = TypingWord[i];
+            }
+            _index = _stateIndex;
+            _spellingOK = true;
+            if (vUseMacro) {
+                for (i = 0; i < hBPC; i++) {
+                    if (hMacroKey.size() > 0)
+                        hMacroKey.pop_back();
                 }
                 for (i = commonPrefix; i < _stateIndex; i++) {
-                    hData[_stateIndex - 1 - i] = TypingWord[i];
+                    hMacroKey.push_back(TypingWord[i]);
                 }
-                _index = _stateIndex;
-                _spellingOK = true;
-                if (vUseMacro) {
-                    for (i = 0; i < hBPC; i++) {
-                        if (hMacroKey.size() > 0)
-                            hMacroKey.pop_back();
-                    }
-                    for (i = commonPrefix; i < _stateIndex; i++) {
-                        hMacroKey.push_back(TypingWord[i]);
-                    }
-                }
-                if (vUpperCaseFirstChar) {
-                    if (_index == 1 && _upperCaseStatus == 2) {
-                        upperCaseFirstCharacter();
-                    }
-                    _upperCaseStatus = 0;
-                }
-                return;
-            } else {
-                KeyStates[_stateIndex - 2] = KeyStates[_stateIndex - 1];
-                _stateIndex--;
             }
+            if (vUpperCaseFirstChar) {
+                if (_index == 1 && _upperCaseStatus == 2) {
+                    upperCaseFirstCharacter();
+                }
+                _upperCaseStatus = 0;
+            }
+            return;
         }
         bool canWMod = (data == KEY_W && vInputType != vVNI) ? canKeyWModify() : false;
         bool hasDelayedCircumflex = false;
@@ -2893,30 +2927,42 @@ void vKeyHandleEvent(const vKeyEvent& event,
                 checkGrammar(-1);
             } else {
                 checkGrammar(0);
-                // The extra vowel was already removed from the word. The screen
-                // still has it, so delete one more character (vietej -> việt).
-                if (deferredBackspace)
-                    hBPC += deferredBackspace;
             }
+        }
+        // The extra vowel was already removed from the word. The screen
+        // still has it, so delete one more character (tapaj -> tập, manaf -> mần).
+        if (deferredBackspace && hCode != vDoNothing) {
+            hBPC += deferredBackspace;
         }
         
         _restoredOnPrevKey = false;
         if (hCode == vRestore) {
-            // Normalize case of the earlier tone key press (ARrgon -> Argon).
-            if (repeatTone && _stateIndex >= 2
-                && (KeyStates[_stateIndex - 1] & CHAR_MASK) == data
-                && (KeyStates[_stateIndex - 2] & CHAR_MASK) == data) {
-                KeyStates[_stateIndex - 2] = KeyStates[_stateIndex - 1];
-            }
             insertKey(data, _isCaps, false);
             bool isTripleRepeat = _stateIndex >= 3
                 && (KeyStates[_stateIndex - 1] & CHAR_MASK) == data
                 && (KeyStates[_stateIndex - 2] & CHAR_MASK) == data
                 && (KeyStates[_stateIndex - 3] & CHAR_MASK) == data;
-            if (isTripleRepeat) {
-                // Triple consecutive key escape (coool -> cool, seeen -> seen, deeep -> deep):
-                // drop the 3rd escape key from KeyStates so KeyStates has "cool"/"seen"/"deep".
+            bool isAdjacentW = isRestoredW && _stateIndex >= 2
+                && (KeyStates[_stateIndex - 1] & CHAR_MASK) == KEY_W
+                && (KeyStates[_stateIndex - 2] & CHAR_MASK) == KEY_W;
+            if (isTripleRepeat || isAdjacentW) {
+                // Triple consecutive key escape (coool -> cool, seeen -> seen, deeep -> deep)
+                // or adjacent horn escape (dowwn -> down, towwn -> town):
+                // drop the consumed escape key from KeyStates.
+                KeyStates[_stateIndex - 2] = KeyStates[_stateIndex - 1];
                 _stateIndex--;
+            } else if (vInputType != vVNI && IS_MARK_KEY(data)) {
+                // Tone cancellation (usser -> user, tassk -> task, casse -> case, ARrgon -> Argon, busns -> buns):
+                // remove the earlier consumed mark key from KeyStates so only one literal character remains.
+                for (int k = (int)_stateIndex - 2; k >= 0; k--) {
+                    if ((KeyStates[k] & CHAR_MASK) == data) {
+                        for (int m = k; m < (int)_stateIndex - 1; m++) {
+                            KeyStates[m] = KeyStates[m + 1];
+                        }
+                        _stateIndex--;
+                        break;
+                    }
+                }
             } else {
                 _restoredOnPrevKey = true;
             }
