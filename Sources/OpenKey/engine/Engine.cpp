@@ -2535,7 +2535,11 @@ void vKeyHandleEvent(const vKeyEvent& event,
                                     }
                                 }
                             }
-                            if ((data != KEY_M && data != KEY_N && data != KEY_I && data != KEY_U && data != KEY_Y && data != KEY_R && !completesUa && !repeatsMarkedVowel) || invalidGlideAfterR) {
+                            bool invalidErm = vChar == KEY_E && !(TypingWord[si] & TONE_MASK) && data == KEY_M &&
+                                _index == 2 && !(TypingWord[0] & TONE_MASK) &&
+                                (CHR(0) == KEY_T || CHR(0) == KEY_G || CHR(0) == KEY_P || CHR(0) == KEY_D ||
+                                 CHR(0) == KEY_S || CHR(0) == KEY_V || CHR(0) == KEY_B);
+                            if ((data != KEY_M && data != KEY_N && data != KEY_I && data != KEY_U && data != KEY_Y && data != KEY_R && !completesUa && !repeatsMarkedVowel) || invalidGlideAfterR || invalidErm) {
                                 shouldRestore = true;
                             }
                             break;

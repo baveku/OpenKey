@@ -211,6 +211,9 @@ extern "C" {
         UpdateFrontmostApp();
     }
     
+    static BOOL _cachedSpotlightVisible = NO;
+    static NSTimeInterval _lastSpotlightCheck = 0;
+
     void RequestNewSession() {
         //send event signal to Engine
         vKeyHandleEvent(vKeyEvent::Mouse, vKeyEventState::MouseDown, 0);
@@ -218,6 +221,7 @@ extern "C" {
         if (IS_DOUBLE_CODE(vCodeTable)) { //VNI
             _syncKey.clear();
         }
+        _lastSpotlightCheck = 0;
     }
     
     bool _isCurrentAppRemote = false;
@@ -249,6 +253,7 @@ extern "C" {
         NSRunningApplication* app = [[NSWorkspace sharedWorkspace] frontmostApplication];
         _frontMostApp = app.bundleIdentifier != nil ? app.bundleIdentifier : (app.localizedName != nil ? app.localizedName : @"UnknownApp");
         _isCurrentAppRemote = isRemoteApp(app);
+        _lastSpotlightCheck = 0;
     }
     
     void queryFrontMostApp() {
@@ -272,31 +277,29 @@ extern "C" {
         return false;
     }
 
-    static BOOL _cachedSpotlightVisible = NO;
-    static NSTimeInterval _lastSpotlightCheck = 0;
-    static BOOL _isCheckingSpotlight = NO;
-
     BOOL isSpotlightVisible() {
-        if ([FRONT_APP isEqualToString:@"com.apple.Spotlight"]) {
+        if ([FRONT_APP isEqualToString:@"com.apple.Spotlight"] ||
+            [FRONT_APP isEqualToString:@"com.apple.campo"]) {
             return YES;
         }
         NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-        if (now - _lastSpotlightCheck >= 0.5 && !_isCheckingSpotlight) {
+        if (now - _lastSpotlightCheck >= 0.15) {
             _lastSpotlightCheck = now;
-            _isCheckingSpotlight = YES;
-            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                BOOL visible = NO;
-                NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
-                                                                                kCGNullWindowID));
-                for (NSDictionary *window in windows) {
-                    if ([[window objectForKey:(__bridge NSString *)kCGWindowOwnerName] isEqualToString:@"Spotlight"]) {
+            BOOL visible = NO;
+            NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+                                                                            kCGNullWindowID));
+            for (NSDictionary *window in windows) {
+                NSString *owner = [window objectForKey:(__bridge NSString *)kCGWindowOwnerName];
+                if ([owner isEqualToString:@"Spotlight"] ||
+                    ([owner isEqualToString:@"Siri"] && [[window objectForKey:(__bridge NSString *)kCGWindowLayer] intValue] >= 20)) {
+                    NSNumber *alpha = [window objectForKey:(__bridge NSString *)kCGWindowAlpha];
+                    if (alpha == nil || [alpha doubleValue] > 0.0) {
                         visible = YES;
                         break;
                     }
                 }
-                _cachedSpotlightVisible = visible;
-                _isCheckingSpotlight = NO;
-            });
+            }
+            _cachedSpotlightVisible = visible;
         }
         return _cachedSpotlightVisible;
     }
@@ -325,12 +328,13 @@ extern "C" {
 
     BOOL shouldUseRecommendWorkaround(NSString* topApp) {
         if (!vFixRecommendBrowser) return false;
-        if (isSpotlightVisible()) return false;
+        if (isSpotlightVisible()) return true;
         return isBrowserApp(topApp);
     }
 
     BOOL shouldUseSelectionReplacement(NSString* topApp) {
-        if ([topApp isEqualToString:@"com.apple.Spotlight"]) return true;
+        if ([topApp isEqualToString:@"com.apple.Spotlight"] ||
+            [topApp isEqualToString:@"com.apple.campo"]) return true;
         return isSpotlightVisible() || [_recommendWorkaroundDisabledApp containsObject:topApp];
     }
     
@@ -547,7 +551,8 @@ extern "C" {
         CGEventSetTimestamp(eventVkeyDown, mach_absolute_time());
         CGEventSetTimestamp(eventVkeyUp, mach_absolute_time());
         _privateFlag = CGEventGetFlags(eventVkeyDown);
-        _privateFlag |= kCGEventFlagMaskShift;
+        _privateFlag &= ~(kCGEventFlagMaskCommand | kCGEventFlagMaskControl | kCGEventFlagMaskAlternate | kCGEventFlagMaskAlphaShift);
+        _privateFlag |= kCGEventFlagMaskShift | kCGEventFlagMaskNonCoalesced;
         CGEventSetFlags(eventVkeyDown, _privateFlag);
         CGEventSetFlags(eventVkeyUp, _privateFlag);
         
@@ -558,7 +563,9 @@ extern "C" {
             if (!_syncKey.empty()) {
                 if (_syncKey.back() > 1) {
                     if (!(vCodeTable == 3 && containUnicodeCompoundApp(FRONT_APP))) {
+                        CGEventSetTimestamp(eventVkeyDown, mach_absolute_time());
                         PostOwnedTapEvent(eventVkeyDown);
+                        CGEventSetTimestamp(eventVkeyUp, mach_absolute_time());
                         PostOwnedTapEvent(eventVkeyUp);
                     }
                 }
@@ -711,9 +718,16 @@ extern "C" {
     
     void handleMacro() {
         //fix autocomplete
-        if (shouldUseRecommendWorkaround(FRONT_APP)) {
+        if (shouldUseRecommendWorkaround(FRONT_APP) && pData->backspaceCount > 0) {
             SendEmptyCharacter();
             pData->backspaceCount++;
+        }
+
+        if (shouldUseSelectionReplacement(FRONT_APP) && pData->backspaceCount > 0 && !vSendKeyStepByStep) {
+            for (int i = 0; i < pData->backspaceCount; i++) {
+                SendShiftAndLeftArrow();
+            }
+            pData->backspaceCount = 0;
         }
         
         //send backspace
@@ -930,21 +944,18 @@ extern "C" {
             } else if (pData->code == vWillProcess || pData->code == vRestore || pData->code == vRestoreAndStartNewSession) { //handle result signal
                 
                 //fix autocomplete
-                if (shouldUseRecommendWorkaround(FRONT_APP) && pData->extCode != 4) {
-                    if (vFixChromiumBrowser && containUnicodeCompoundApp(FRONT_APP)) {
-                        if (pData->backspaceCount > 0) {
-                            SendShiftAndLeftArrow();
-                            if (pData->backspaceCount == 1)
-                                pData->backspaceCount--;
-                        }
+                if (shouldUseRecommendWorkaround(FRONT_APP) && pData->extCode != 4 && pData->backspaceCount > 0) {
+                    if (vFixChromiumBrowser && !isSpotlightVisible() && containUnicodeCompoundApp(FRONT_APP)) {
+                        SendShiftAndLeftArrow();
+                        if (pData->backspaceCount == 1)
+                            pData->backspaceCount--;
                     } else {
                         SendEmptyCharacter();
                         pData->backspaceCount++;
-                    
                     }
                 }
 
-                if (shouldUseSelectionReplacement(FRONT_APP) && pData->backspaceCount > 0) {
+                if (shouldUseSelectionReplacement(FRONT_APP) && pData->backspaceCount > 0 && !vSendKeyStepByStep) {
                     for (_i = 0; _i < pData->backspaceCount; _i++) {
                         SendShiftAndLeftArrow();
                     }
